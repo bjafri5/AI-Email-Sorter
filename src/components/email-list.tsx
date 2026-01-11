@@ -50,12 +50,19 @@ interface UnsubscribeResult {
   message: string;
 }
 
-export function EmailList({ emails, categoryId, isUncategorized = false }: EmailListProps) {
+const EMAILS_PER_PAGE = 50;
+
+export function EmailList({
+  emails,
+  categoryId,
+  isUncategorized = false,
+}: EmailListProps) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUnsubscribing, setIsUnsubscribing] = useState(false);
   const [isRecategorizing, setIsRecategorizing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Confirmation modal state
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -95,22 +102,47 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
   } | null>(null);
 
   // Recategorize progress modal state
-  const [showRecategorizeProgressModal, setShowRecategorizeProgressModal] = useState(false);
-  const [recategorizeProgressLog, setRecategorizeProgressLog] = useState<RecategorizeProgressLogItem[]>([]);
-
-  // Recategorize results modal state
-  const [showRecategorizeResultsModal, setShowRecategorizeResultsModal] = useState(false);
-  const [recategorizeResults, setRecategorizeResults] = useState<
-    Array<{ emailId: string; fromEmail: string; fromName: string | null; success: boolean; categoryName: string | null }>
+  const [showRecategorizeProgressModal, setShowRecategorizeProgressModal] =
+    useState(false);
+  const [recategorizeProgressLog, setRecategorizeProgressLog] = useState<
+    RecategorizeProgressLogItem[]
   >([]);
 
-  const allSelected = emails.length > 0 && selectedIds.size === emails.length;
+  // Recategorize results modal state
+  const [showRecategorizeResultsModal, setShowRecategorizeResultsModal] =
+    useState(false);
+  const [recategorizeResults, setRecategorizeResults] = useState<
+    Array<{
+      emailId: string;
+      fromEmail: string;
+      fromName: string | null;
+      success: boolean;
+      categoryName: string | null;
+    }>
+  >([]);
+
+  // Pagination - calculate early so we can use paginatedEmails in toggleAll
+  const totalPages = Math.ceil(emails.length / EMAILS_PER_PAGE);
+  const startIndex = (currentPage - 1) * EMAILS_PER_PAGE;
+  const endIndex = startIndex + EMAILS_PER_PAGE;
+  const paginatedEmails = emails.slice(startIndex, endIndex);
+
+  // Check if all emails on current page are selected
+  const allOnPageSelected =
+    paginatedEmails.length > 0 &&
+    paginatedEmails.every((e) => selectedIds.has(e.id));
 
   const toggleAll = () => {
-    if (allSelected) {
-      setSelectedIds(new Set());
+    if (allOnPageSelected) {
+      // Deselect all on current page
+      const newSet = new Set(selectedIds);
+      paginatedEmails.forEach((e) => newSet.delete(e.id));
+      setSelectedIds(newSet);
     } else {
-      setSelectedIds(new Set(emails.map((e) => e.id)));
+      // Select all on current page (keep existing selections from other pages)
+      const newSet = new Set(selectedIds);
+      paginatedEmails.forEach((e) => newSet.add(e.id));
+      setSelectedIds(newSet);
     }
   };
 
@@ -124,7 +156,9 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
     setSelectedIds(newSet);
   };
 
-  const openConfirmModal = (action: "delete" | "unsubscribe" | "recategorize") => {
+  const openConfirmModal = (
+    action: "delete" | "unsubscribe" | "recategorize"
+  ) => {
     setConfirmAction(action);
     setShowConfirmModal(true);
   };
@@ -207,6 +241,7 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
     // Get the selected emails' info for the progress log
     const selectedEmails = emails.filter((e) => selectedIds.has(e.id));
     const initialLog = selectedEmails.map((e) => ({
+      emailId: e.id,
       fromEmail: e.fromEmail,
       status: "pending" as const,
     }));
@@ -222,10 +257,12 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
     });
 
     try {
+      // Send email IDs in the order they appear in the UI
+      const orderedEmailIds = selectedEmails.map((e) => e.id);
       const response = await fetch("/api/emails/unsubscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailIds: Array.from(selectedIds) }),
+        body: JSON.stringify({ emailIds: orderedEmailIds }),
       });
 
       if (!response.ok) throw new Error("Failed to start unsubscribe");
@@ -249,10 +286,10 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
             const data = JSON.parse(line.slice(6));
 
             if (data.type === "processing") {
-              // Mark current email as processing
+              // Mark current email as processing (by unique emailId)
               setProgressLog((prev) =>
                 prev.map((item) =>
-                  item.fromEmail === data.current
+                  item.emailId === data.currentId
                     ? { ...item, status: "processing" }
                     : item
                 )
@@ -267,10 +304,10 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
             }
 
             if (data.type === "progress" && data.result) {
-              // Update the completed email's status
+              // Update the completed email's status (by unique emailId)
               setProgressLog((prev) =>
                 prev.map((item) =>
-                  item.fromEmail === data.result.fromEmail
+                  item.emailId === data.result.emailId
                     ? {
                         ...item,
                         status: data.result.success ? "success" : "failed",
@@ -315,12 +352,14 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
 
     // Get the selected emails' info for the progress log
     const selectedEmails = emails.filter((e) => selectedIds.has(e.id));
-    const initialLog: RecategorizeProgressLogItem[] = selectedEmails.map((e) => ({
-      emailId: e.id,
-      fromEmail: e.fromEmail,
-      fromName: e.fromName,
-      status: "pending" as const,
-    }));
+    const initialLog: RecategorizeProgressLogItem[] = selectedEmails.map(
+      (e) => ({
+        emailId: e.id,
+        fromEmail: e.fromEmail,
+        fromName: e.fromName,
+        status: "pending" as const,
+      })
+    );
 
     setIsRecategorizing(true);
     setRecategorizeProgressLog(initialLog);
@@ -423,8 +462,12 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
   const succeededCount = unsubscribeResults.filter((r) => r.success).length;
   const failedCount = unsubscribeResults.filter((r) => !r.success).length;
 
-  const recategorizeSucceededCount = recategorizeResults.filter((r) => r.success).length;
-  const recategorizeFailedCount = recategorizeResults.filter((r) => !r.success).length;
+  const recategorizeSucceededCount = recategorizeResults.filter(
+    (r) => r.success
+  ).length;
+  const recategorizeFailedCount = recategorizeResults.filter(
+    (r) => !r.success
+  ).length;
 
   if (emails.length === 0) {
     return (
@@ -552,7 +595,10 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
       </Dialog>
 
       {/* Recategorize Results Modal */}
-      <Dialog open={showRecategorizeResultsModal} onOpenChange={setShowRecategorizeResultsModal}>
+      <Dialog
+        open={showRecategorizeResultsModal}
+        onOpenChange={setShowRecategorizeResultsModal}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Recategorize Results</DialogTitle>
@@ -608,11 +654,11 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
         <div className="flex items-center gap-2">
           <Checkbox
             id="select-all"
-            checked={allSelected}
+            checked={allOnPageSelected}
             onCheckedChange={toggleAll}
           />
           <label htmlFor="select-all" className="text-sm">
-            Select All ({emails.length})
+            Select All ({paginatedEmails.length})
           </label>
         </div>
 
@@ -662,66 +708,118 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
       </div>
 
       {/* Email List */}
-      <div className="space-y-2">
-        {emails.map((email) => (
-          <div
-            key={email.id}
-            className={`flex items-start gap-3 p-4 border rounded-lg hover:bg-gray-50 ${
-              email.unsubscribeStatus === "success" ? "bg-gray-50" : "bg-white"
-            }`}
-          >
-            <Checkbox
-              checked={selectedIds.has(email.id)}
-              onCheckedChange={() => toggleOne(email.id)}
-              className="mt-1"
-            />
+      <div className="max-h-[600px] overflow-y-auto border rounded-lg">
+        <div className="space-y-2 p-2">
+          {paginatedEmails.map((email) => (
+            <div
+              key={email.id}
+              className={`flex items-start gap-3 p-4 border rounded-lg hover:bg-gray-50 ${
+                email.unsubscribeStatus === "success"
+                  ? "bg-gray-50"
+                  : "bg-white"
+              }`}
+            >
+              <Checkbox
+                checked={selectedIds.has(email.id)}
+                onCheckedChange={() => toggleOne(email.id)}
+                className="mt-1"
+              />
 
-            <Link href={`/email/${email.id}`} className="flex-1 min-w-0">
-              <div className="flex justify-between items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium truncate">
-                      {email.fromName || email.fromEmail}
+              <Link href={`/email/${email.id}`} className="flex-1 min-w-0">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium truncate">
+                        {email.fromName || email.fromEmail}
+                      </p>
+                      {email.unsubscribeStatus === "success" && (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                          Unsubscribed
+                        </span>
+                      )}
+                      {email.unsubscribeStatus === "failed" && (
+                        <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">
+                          Unsub failed
+                        </span>
+                      )}
+                      {!email.unsubscribeStatus && email.unsubscribeLink && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                          Can unsubscribe
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-900 truncate">
+                      {email.subject}
                     </p>
-                    {email.unsubscribeStatus === "success" && (
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                        Unsubscribed
-                      </span>
-                    )}
-                    {email.unsubscribeStatus === "failed" && (
-                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">
-                        Unsub failed
-                      </span>
-                    )}
-                    {!email.unsubscribeStatus && email.unsubscribeLink && (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                        Can unsubscribe
-                      </span>
+                    <p className="text-sm text-gray-500 line-clamp-2 mt-1">
+                      {email.summary}
+                    </p>
+                  </div>
+                  <div className="text-xs text-gray-400 whitespace-nowrap text-right">
+                    <div>{new Date(email.receivedAt).toLocaleDateString()}</div>
+                    {email.account.email && (
+                      <div
+                        className="mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full truncate max-w-[200px]"
+                        title={email.account.email}
+                      >
+                        {email.account.email}
+                      </div>
                     )}
                   </div>
-                  <p className="text-sm text-gray-900 truncate">
-                    {email.subject}
-                  </p>
-                  <p className="text-sm text-gray-500 line-clamp-2 mt-1">
-                    {email.summary}
-                  </p>
                 </div>
-                <div className="text-xs text-gray-400 whitespace-nowrap text-right">
-                  <div>{new Date(email.receivedAt).toLocaleDateString()}</div>
-                  {email.account.email && (
-                    <div
-                      className="mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full truncate max-w-[200px]"
-                      title={email.account.email}
-                    >
-                      {email.account.email}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Link>
-          </div>
-        ))}
+              </Link>
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t">
+          <div className="text-xs sm:text-sm text-gray-500">
+            {startIndex + 1}-{Math.min(endIndex, emails.length)} of {emails.length}
+          </div>
+          <div className="flex items-center gap-1 sm:gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+              className="hidden sm:inline-flex"
+            >
+              First
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              Prev
+            </Button>
+            <span className="text-xs sm:text-sm px-2 sm:px-3">
+              {currentPage} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+              className="hidden sm:inline-flex"
+            >
+              Last
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

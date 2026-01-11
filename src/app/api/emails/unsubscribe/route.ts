@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Get emails with unsubscribe links that belong to this user
-  const emails = await prisma.email.findMany({
+  const fetchedEmails = await prisma.email.findMany({
     where: {
       id: { in: emailIds },
       account: { userId: session.user.id },
@@ -36,6 +36,12 @@ export async function POST(request: NextRequest) {
       },
     },
   });
+
+  // Preserve the order of emailIds from the request
+  const emailOrder = new Map(emailIds.map((id: string, index: number) => [id, index]));
+  const emails = fetchedEmails.sort((a, b) =>
+    (emailOrder.get(a.id) ?? 0) - (emailOrder.get(b.id) ?? 0)
+  );
 
   if (emails.length === 0) {
     return new Response(
@@ -92,6 +98,7 @@ export async function POST(request: NextRequest) {
           processed: i,
           succeeded,
           failed,
+          currentId: email.id,
           current: email.fromEmail,
         });
 
@@ -145,6 +152,7 @@ export async function POST(request: NextRequest) {
             failed,
             current: email.fromEmail,
             result: {
+              emailId: email.id,
               fromEmail: email.fromEmail,
               success: result.success,
               message: result.message,
@@ -177,6 +185,7 @@ export async function POST(request: NextRequest) {
             failed,
             current: email.fromEmail,
             result: {
+              emailId: email.id,
               fromEmail: email.fromEmail,
               success: false,
               message: `Error: ${error}`,

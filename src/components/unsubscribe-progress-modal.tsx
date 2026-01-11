@@ -10,6 +10,7 @@ import {
 import { friendlyUnsubscribeErrorMessage } from "@/lib/error-messages";
 
 export interface ProgressLogItem {
+  emailId: string;
   fromEmail: string;
   status: "pending" | "processing" | "success" | "failed";
   message?: string;

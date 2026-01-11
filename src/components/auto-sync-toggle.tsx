@@ -27,7 +27,7 @@ export function AutoSyncToggle() {
         </div>
       </TooltipTrigger>
       <TooltipContent>
-        Automatically sync emails every minute
+        Automatically sync new unread emails every minute
       </TooltipContent>
     </Tooltip>
   );

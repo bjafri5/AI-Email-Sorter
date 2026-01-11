@@ -63,7 +63,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
   });
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
+    <div className="container mx-auto px-4 py-4 max-w-6xl">
       <div className="mb-6">
         <Link
           href="/dashboard"
@@ -88,7 +88,11 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
         />
       )}
 
-      <EmailList emails={emails} categoryId={isUncategorized ? null : id} isUncategorized={isUncategorized} />
+      <EmailList
+        emails={emails}
+        categoryId={isUncategorized ? null : id}
+        isUncategorized={isUncategorized}
+      />
     </div>
   );
 }

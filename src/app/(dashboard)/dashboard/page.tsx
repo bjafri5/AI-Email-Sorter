@@ -35,12 +35,15 @@ export default async function DashboardPage() {
   });
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl space-y-8">
+    <div className="container mx-auto px-4 py-4 max-w-6xl space-y-8">
       <p className="text-gray-500">
         Welcome, {session.user.name || session.user.email}
       </p>
       <ConnectedAccounts accounts={accounts} userEmail={session.user.email} />
-      <CategoriesList categories={categories} uncategorizedCount={uncategorizedCount} />
+      <CategoriesList
+        categories={categories}
+        uncategorizedCount={uncategorizedCount}
+      />
     </div>
   );
 }

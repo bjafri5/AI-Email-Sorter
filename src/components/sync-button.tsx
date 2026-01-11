@@ -15,7 +15,7 @@ export function SyncButton() {
     <div className="flex items-center gap-2">
       {progressText && (
         <span
-          className={`text-sm ${isError ? "text-red-500" : "text-gray-500"}`}
+          className={`hidden sm:inline text-xs ${isError ? "text-red-500" : "text-gray-500"}`}
         >
           {progressText}
         </span>
