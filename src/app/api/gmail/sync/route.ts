@@ -153,6 +153,10 @@ export async function POST() {
               status: "processed",
             });
           } catch (error) {
+            console.error(
+              `Error processing email ${emailData.gmailId} (${emailData.subject}):`,
+              error
+            );
             errors++;
             send({
               type: "progress",
@@ -162,6 +166,7 @@ export async function POST() {
               skipped,
               errors,
               status: "error",
+              errorMessage: error instanceof Error ? error.message : String(error),
             });
           }
         }

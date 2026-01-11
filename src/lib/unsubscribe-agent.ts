@@ -592,6 +592,7 @@ function isSuccessPage(text: string): boolean {
     /email preferences.*updated/i,
     /saved.*preferences/i,
     /saved.*email.*preferences/i,
+    /{"success":true}/i,
   ];
   return patterns.some((p) => p.test(text));
 }
