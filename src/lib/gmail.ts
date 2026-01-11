@@ -96,7 +96,7 @@ async function getEmailDetails(gmail: gmail_v1.Gmail, messageId: string) {
 
   // Extract unsubscribe link from headers
   const unsubscribeHeader = getHeader("List-Unsubscribe");
-  const unsubscribeLink = extractUnsubscribeLink(unsubscribeHeader, body);
+  const unsubscribeLink = await extractUnsubscribeLink(unsubscribeHeader, body);
 
   return {
     gmailId: message.id!,
@@ -152,46 +152,6 @@ function extractName(from: string): string {
   return match ? match[1].replace(/"/g, "").trim() : "";
 }
 
-// Extract unsubscribe link (with optional AI fallback)
-export function extractUnsubscribeLink(
-  header: string,
-  body: string
-): string | null {
-  // Try header first (most reliable)
-  if (header) {
-    const urlMatch = header.match(/<(https?:\/\/[^>]+)>/);
-    if (urlMatch) return urlMatch[1];
-  }
-
-  // Try common patterns in body
-  const patterns = [
-    /https?:\/\/[^\s"<>]*unsubscribe[^\s"<>]*/i,
-    /https?:\/\/[^\s"<>]*optout[^\s"<>]*/i,
-    /https?:\/\/[^\s"<>]*opt-out[^\s"<>]*/i,
-    /https?:\/\/[^\s"<>]*remove[^\s"<>]*/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = body.match(pattern);
-    if (match) return match[0];
-  }
-
-  return null;
-}
-
-// Async version with AI fallback (use when regex fails)
-export async function extractUnsubscribeLinkWithAI(
-  header: string,
-  body: string
-): Promise<string | null> {
-  // Try regex first
-  const regexResult = extractUnsubscribeLink(header, body);
-  if (regexResult) return regexResult;
-
-  // Fall back to AI
-  return extractUnsubscribeLinkAI(body);
-}
-
 // Archive email (remove from inbox)
 export async function archiveEmail(accountId: string, gmailId: string) {
   const gmail = await getGmailClient(accountId);
@@ -238,4 +198,87 @@ export async function deleteEmails(accountId: string, gmailIds: string[]) {
       id: gmailId,
     });
   }
+}
+
+// Extract unsubscribe link from body or header
+export async function extractUnsubscribeLink(
+  header: string,
+  body: string
+): Promise<string | null> {
+  // 1. Look for anchor tags with "unsubscribe" in the link text
+  const anchorPattern =
+    /<a[^>]*href=["']([^"']+)["'][^>]*>[^<]*unsubscribe[^<]*<\/a>/gi;
+  let match;
+  while ((match = anchorPattern.exec(body)) !== null) {
+    if (!match[1].startsWith("mailto:")) {
+      return decodeHtmlEntities(match[1]);
+    }
+  }
+
+  // 2. Look for "unsubscribe" BEFORE a link (common pattern: "unsubscribe click here")
+  const beforePattern =
+    /unsubscribe[^<]{0,100}<a[^>]*href=["']([^"']+)["'][^>]*>/gi;
+  while ((match = beforePattern.exec(body)) !== null) {
+    if (!match[1].startsWith("mailto:")) {
+      return decodeHtmlEntities(match[1]);
+    }
+  }
+
+  // 3. Look for "unsubscribe" AFTER a link (within 100 chars after </a>)
+  const afterPattern =
+    /<a[^>]*href=["']([^"']+)["'][^>]*>[^<]*<\/a>[^<]{0,100}unsubscribe/gi;
+  while ((match = afterPattern.exec(body)) !== null) {
+    if (!match[1].startsWith("mailto:")) {
+      return decodeHtmlEntities(match[1]);
+    }
+  }
+
+  // 4. Fallback: List-Unsubscribe header (skip mailto:)
+  if (header) {
+    const urlMatch = header.match(/<(https?:\/\/[^>]+)>/);
+    if (urlMatch) {
+      return urlMatch[1];
+    }
+  }
+
+  // 5. Fallback: AI extraction
+  return await extractUnsubscribeLinkAI(body);
+}
+
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+export async function trashEmail(
+  accountId: string,
+  gmailId: string
+): Promise<void> {
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+  });
+
+  if (!account) {
+    throw new Error("Account not found");
+  }
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+  oauth2Client.setCredentials({
+    access_token: account.access_token,
+    refresh_token: account.refresh_token,
+  });
+
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  await gmail.users.messages.trash({
+    userId: "me",
+    id: gmailId,
+  });
 }

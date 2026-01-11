@@ -36,12 +36,18 @@ export function SyncButton() {
           if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
 
-            if (data.type === "start") {
+            if (data.type === "fetching") {
+              setProgress("Fetching emails...");
+            } else if (data.type === "start") {
               setProgress(`0/${data.total} processed`);
             } else if (data.type === "progress") {
               setProgress(`${data.current}/${data.total} processed`);
             } else if (data.type === "complete") {
-              setProgress(`Done! ${data.totalProcessed} processed`);
+              const parts = [];
+              if (data.totalProcessed > 0) parts.push(`${data.totalProcessed} new`);
+              if (data.totalSkipped > 0) parts.push(`${data.totalSkipped} skipped`);
+              if (data.totalErrors > 0) parts.push(`${data.totalErrors} errors`);
+              setProgress(parts.length > 0 ? `Done! ${parts.join(", ")}` : "Done! No new emails");
               setIsError(false);
             } else if (data.type === "error") {
               setProgress(data.message);

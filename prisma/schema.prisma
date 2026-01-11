@@ -75,6 +75,9 @@ model Email {
   isArchived      Boolean   @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+  unsubscribeStatus   String?   // "pending", "success", "failed"
+  unsubscribeAttempts Int       @default(0)
+  unsubscribedAt   DateTime?
 }
 
 model Session {

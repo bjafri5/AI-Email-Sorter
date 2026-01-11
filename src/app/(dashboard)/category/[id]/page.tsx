@@ -39,8 +39,9 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
       summary: true,
       receivedAt: true,
       unsubscribeLink: true,
+      unsubscribeStatus: true,
       account: {
-        select: { id: true },
+        select: { id: true, email: true },
       },
     },
   });

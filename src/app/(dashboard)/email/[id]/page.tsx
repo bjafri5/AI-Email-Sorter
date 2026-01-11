@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
+import { EmailActions } from "@/components/email-actions";
 
 interface EmailPageProps {
   params: Promise<{ id: string }>;
@@ -64,6 +65,15 @@ export default async function EmailPage({ params }: EmailPageProps) {
                 {email.category.name}
               </p>
             )}
+          </div>
+          <div className="mt-4">
+            <EmailActions
+              emailId={email.id}
+              fromEmail={email.fromEmail}
+              unsubscribeLink={email.unsubscribeLink}
+              unsubscribeStatus={email.unsubscribeStatus}
+              categoryId={email.categoryId}
+            />
           </div>
         </div>
 

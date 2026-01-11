@@ -100,29 +100,26 @@ Summary:`;
 }
 
 /**
- * Extract unsubscribe link from email body using AI (fallback method)
+ * Extract unsubscribe link from email body using AI
  */
 export async function extractUnsubscribeLinkAI(
   emailBody: string
 ): Promise<string | null> {
-  const truncatedBody = emailBody.substring(0, 4000);
-
-  const prompt = `Find the unsubscribe URL in this email. 
-  
-Email content:
-${truncatedBody}
-
-Instructions:
-- Return ONLY the full unsubscribe URL (starting with http:// or https://)
-- If no unsubscribe link is found, respond with "NONE"
-- Do not include any other text
-
-Unsubscribe URL:`;
-
   try {
+    // Take from END where unsubscribe links are
+    const bodyLength = emailBody.length;
+    const excerpt = emailBody.substring(Math.max(0, bodyLength - 10000));
+
     const response = await openai.chat.completions.create({
       model: "gpt-5-nano",
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        {
+          role: "user",
+          content: `Find the unsubscribe link in this email HTML. Return ONLY the URL, nothing else. If none found, return "NONE".
+
+${excerpt}`,
+        },
+      ],
     });
 
     const result = response.choices[0]?.message?.content?.trim() || "NONE";
@@ -133,7 +130,7 @@ Unsubscribe URL:`;
 
     return result;
   } catch (error) {
-    console.error("Unsubscribe extraction error:", error);
+    console.error("Error extracting unsubscribe link:", error);
     return null;
   }
 }
