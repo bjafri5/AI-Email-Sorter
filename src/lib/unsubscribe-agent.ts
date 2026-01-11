@@ -45,7 +45,8 @@ export async function unsubscribeFromLink(
     console.log(`Browser launched in ${Date.now() - launchStart}ms`);
 
     const context = await browser.newContext({
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       viewport: { width: 1920, height: 1080 },
     });
 
@@ -446,46 +447,27 @@ JSON only:`;
 
   3. If both "Unsubscribe" and "Manage preferences" options exist, prefer "Unsubscribe"
 
-  4. For input fields, fill them based on their label/placeholder:
-    - Email fields → fill with user's email
-    - Name fields → fill with user's name (if available)
-    - Reason/feedback fields → fill with "No longer interested"
-    - After filling required fields, click Submit/Confirm
+  4. BEFORE clicking Submit/Update, fill any empty input fields:
+    - Email fields → fill with user's email (REQUIRED before submit)
+    - Name fields → fill with user's name
+    - Reason fields → fill with "No longer interested"
 
-  5. For checkboxes/radios - IMPORTANT - understand the checkbox semantics:
-    - "Unsubscribe from X" checkbox → must be CHECKED to unsubscribe (checking = confirming you want to unsubscribe)
-    - "Subscribe" or "Keep me subscribed" checkbox → must be UNCHECKED to unsubscribe
-    - For YES/NO or ON/OFF toggles about receiving emails:
-      - If toggle is for "receive emails": checked = subscribed (WRONG), unchecked = unsubscribed (CORRECT)
-      - If toggle is for "unsubscribe": checked = will unsubscribe (CORRECT), unchecked = won't unsubscribe (WRONG)
+  5. For checkboxes/radios:
+    - "Unsubscribe from X" or "Remove me" → must be CHECKED
+    - "Subscribe" or "Keep subscribed" → must be UNCHECKED
+    - For YES/NO toggles about RECEIVING emails: unchecked=correct, checked=wrong (click to uncheck)
+    - For YES/NO toggles about NOT receiving/unsubscribing: checked=correct, unchecked=wrong (click to check)
+    - Click to toggle if in wrong state, then verify it changed before submitting
 
-  6. CRITICAL checkbox workflow:
-    a. First, check current checkbox state in the element list (value: "checked" or "unchecked")
-    b. Determine if state needs to change based on rule 5
-    c. If checkbox needs to be CHECKED but shows "unchecked" → CLICK it
-    d. If checkbox needs to be UNCHECKED but shows "checked" → CLICK it
-    e. After clicking, WAIT for next attempt to verify the state changed
-    f. Only proceed to Submit AFTER verifying the checkbox is in the correct state
+  6. Workflow order: Fill inputs → Set checkboxes → Click Submit → Verify success
 
-  7. After checkbox/radio is VERIFIED to be in correct state, click Submit/Save/Update button
+  7. Do NOT repeat actions. Check PREVIOUS ACTIONS and do the next step.
 
-  8. Selecting an option is NOT enough - you must SAVE the changes
+  8. Return DONE with success:true only if:
+    - Page shows success message, OR
+    - Submit was clicked AND form is in correct state
 
-  9. Do NOT repeat the same action. Check PREVIOUS ACTIONS and do the next logical step.
-    - If you clicked a checkbox, verify its new state before clicking Submit
-    - If checkbox state did NOT change after clicking, try clicking it again
-    - If you clicked Save/Submit, check if success message appeared
-
-  10. Only return DONE with success:true if:
-    - Page shows explicit success message ("unsubscribed", "preferences saved", etc.), OR
-    - Save/Submit was clicked AND checkbox shows CORRECT state (e.g., "Unsubscribe from X" shows "checked")
-
-  11. Return DONE with success:false if:
-    - Checkbox for "Unsubscribe from X" is still "unchecked" after clicking Submit
-    - Error message appears
-    - Cannot proceed
-
-  IMPORTANT: If an "Unsubscribe from X" checkbox shows "unchecked", the user is still SUBSCRIBED. You must click it to CHECK it, then click Submit.
+  9. Return DONE with success:false if error or cannot proceed.
 
   RESPOND WITH JSON:
   {"action": "DONE", "success": true, "message": "reason"} - if confirmation visible OR save was clicked with correct state

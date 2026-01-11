@@ -9,6 +9,12 @@ describe('friendlyUnsubscribeErrorMessage', () => {
       .toBe('This website is blocking automated unsubscribe. Please unsubscribe manually.')
     expect(friendlyUnsubscribeErrorMessage('net::ERR_CONNECTION_REFUSED'))
       .toBe('This website is blocking automated unsubscribe. Please unsubscribe manually.')
+    expect(friendlyUnsubscribeErrorMessage('captcha required'))
+      .toBe('This website is blocking automated unsubscribe. Please unsubscribe manually.')
+    expect(friendlyUnsubscribeErrorMessage('anti-bot protection detected'))
+      .toBe('This website is blocking automated unsubscribe. Please unsubscribe manually.')
+    expect(friendlyUnsubscribeErrorMessage("verify you're human"))
+      .toBe('This website is blocking automated unsubscribe. Please unsubscribe manually.')
   })
 
   it('converts timeout errors', () => {
