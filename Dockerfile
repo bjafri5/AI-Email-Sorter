@@ -7,10 +7,10 @@ COPY package*.json ./
 COPY prisma ./prisma/
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
-# Install Chromium browser for Playwright
-RUN npx playwright install chromium
+# Generate Prisma client
+RUN npx prisma generate
 
 # Copy application code
 COPY . .
