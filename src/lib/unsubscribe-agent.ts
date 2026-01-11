@@ -602,7 +602,7 @@ JSON only:`;
   }
 }
 
-function isSuccessPage(text: string): boolean {
+export function isSuccessPage(text: string): boolean {
   const patterns = [
     /already unsubscribed/i,
     /you are now unsubscribed/i,
@@ -635,7 +635,7 @@ function isSuccessPage(text: string): boolean {
   return patterns.some((p) => p.test(text));
 }
 
-function isErrorPage(text: string): boolean {
+export function isErrorPage(text: string): boolean {
   const patterns = [
     /unsubscribe.*failed/i,
     /error.*occurred/i,

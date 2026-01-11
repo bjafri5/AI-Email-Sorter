@@ -141,13 +141,13 @@ function extractBodyFromParts(parts: gmail_v1.Schema$MessagePart[]): string {
 }
 
 // Extract email from "Name <email@example.com>" format
-function extractEmail(from: string): string {
+export function extractEmail(from: string): string {
   const match = from.match(/<(.+?)>/);
   return match ? match[1] : from;
 }
 
 // Extract name from "Name <email@example.com>" format
-function extractName(from: string): string {
+export function extractName(from: string): string {
   const match = from.match(/^(.+?)\s*</);
   return match ? match[1].replace(/"/g, "").trim() : "";
 }
@@ -269,7 +269,7 @@ export async function extractUnsubscribeLink(
   return await extractUnsubscribeLinkAI(body);
 }
 
-function decodeHtmlEntities(str: string): string {
+export function decodeHtmlEntities(str: string): string {
   return str
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")

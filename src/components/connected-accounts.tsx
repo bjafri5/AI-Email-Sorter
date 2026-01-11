@@ -33,7 +33,10 @@ interface ConnectedAccountsProps {
   userEmail: string | null | undefined;
 }
 
-export function ConnectedAccounts({ accounts, userEmail }: ConnectedAccountsProps) {
+export function ConnectedAccounts({
+  accounts,
+  userEmail,
+}: ConnectedAccountsProps) {
   const router = useRouter();
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -91,8 +94,10 @@ export function ConnectedAccounts({ accounts, userEmail }: ConnectedAccountsProp
           <DialogHeader>
             <DialogTitle>Remove Account</DialogTitle>
             <DialogDescription>
-              Are you sure you want to remove {accountToRemove?.email || "this account"}?
-              All emails synced from this account will be deleted.
+              Are you sure you want to remove{" "}
+              {accountToRemove?.email || "this account"}? All emails synced from
+              this account will be deleted from this app (they will remain on
+              your Gmail account).
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -119,7 +124,9 @@ export function ConnectedAccounts({ accounts, userEmail }: ConnectedAccountsProp
         <CardContent>
           <div className="space-y-3">
             {sortedAccounts.length === 0 ? (
-              <p className="text-gray-500 text-sm">No accounts connected yet.</p>
+              <p className="text-gray-500 text-sm">
+                No accounts connected yet.
+              </p>
             ) : (
               sortedAccounts.map((account) => {
                 const isPrimary = isPrimaryAccount(account);
