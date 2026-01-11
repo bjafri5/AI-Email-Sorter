@@ -87,12 +87,6 @@ export function EmailList({
   } | null>(null);
   const [progressLog, setProgressLog] = useState<ProgressLogItem[]>([]);
 
-  const [deleteProgress, setDeleteProgress] = useState<{
-    total: number;
-    processed: number;
-    succeeded: number;
-    failed: number;
-  } | null>(null);
 
   const [recategorizeProgress, setRecategorizeProgress] = useState<{
     total: number;
@@ -179,12 +173,6 @@ export function EmailList({
     if (selectedIds.size === 0) return;
 
     setIsDeleting(true);
-    setDeleteProgress({
-      total: selectedIds.size,
-      processed: 0,
-      succeeded: 0,
-      failed: 0,
-    });
 
     try {
       const response = await fetch("/api/emails/delete", {
@@ -195,43 +183,12 @@ export function EmailList({
 
       if (!response.ok) throw new Error("Failed to delete emails");
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response body");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = JSON.parse(line.slice(6));
-
-            if (data.type === "processing" || data.type === "progress") {
-              setDeleteProgress({
-                total: data.total,
-                processed: data.processed,
-                succeeded: data.succeeded,
-                failed: data.failed,
-              });
-            }
-          }
-        }
-      }
-
       setSelectedIds(new Set());
       router.refresh();
     } catch (error) {
       console.error("Delete error:", error);
     } finally {
       setIsDeleting(false);
-      setDeleteProgress(null);
     }
   };
 
@@ -673,11 +630,7 @@ export function EmailList({
               onClick={() => openConfirmModal("delete")}
               disabled={isDeleting || isUnsubscribing || isRecategorizing}
             >
-              {isDeleting
-                ? `Deleted ${deleteProgress?.processed || 0}/${
-                    deleteProgress?.total || 0
-                  }...`
-                : `Delete (${selectedIds.size})`}
+              {isDeleting ? "Deleting..." : `Delete (${selectedIds.size})`}
             </Button>
             <Button
               onClick={() => openConfirmModal("unsubscribe")}

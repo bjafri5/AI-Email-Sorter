@@ -1,177 +1,114 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
-// Mock AI extraction to isolate regex testing
-vi.mock('@/lib/ai', () => ({
-  extractUnsubscribeLinkAI: vi.fn(),
-}))
+import { extractUnsubscribeLinkFast, extractEmail, extractName, decodeHtmlEntities } from '@/lib/gmail'
 
-// Mock Prisma to avoid database dependency
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
-    account: { findUnique: vi.fn(), update: vi.fn() },
-  },
-}))
-
-// Mock googleapis
-vi.mock('googleapis', () => ({
-  google: {
-    auth: {
-      OAuth2: vi.fn().mockImplementation(() => ({
-        setCredentials: vi.fn(),
-        on: vi.fn(),
-      })),
-    },
-    gmail: vi.fn().mockReturnValue({
-      users: {
-        messages: {
-          list: vi.fn(),
-          get: vi.fn(),
-          modify: vi.fn(),
-          trash: vi.fn(),
-          batchModify: vi.fn(),
-        },
-      },
-    }),
-  },
-}))
-
-import { extractUnsubscribeLink, extractEmail, extractName, decodeHtmlEntities } from '@/lib/gmail'
-import { extractUnsubscribeLinkAI } from '@/lib/ai'
-
-describe('extractUnsubscribeLink', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    // Default: AI returns null (no fallback link found)
-    vi.mocked(extractUnsubscribeLinkAI).mockResolvedValue(null)
-  })
-
+describe('extractUnsubscribeLinkFast', () => {
   describe('anchor tag extraction', () => {
-    it('extracts link from anchor tag with "unsubscribe" text', async () => {
+    it('extracts link from anchor tag with "unsubscribe" text', () => {
       const body = '<p>Not interested? <a href="https://example.com/unsub">Unsubscribe here</a></p>'
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://example.com/unsub')
-      expect(extractUnsubscribeLinkAI).not.toHaveBeenCalled()
     })
 
-    it('extracts link when "unsubscribe" precedes anchor', async () => {
+    it('extracts link when "unsubscribe" precedes anchor', () => {
       const body = '<p>To unsubscribe, <a href="https://example.com/unsub">click here</a></p>'
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://example.com/unsub')
     })
 
-    it('extracts link when "unsubscribe" follows anchor', async () => {
+    it('extracts link when "unsubscribe" follows anchor', () => {
       const body = '<p><a href="https://example.com/unsub">Click here</a> to unsubscribe</p>'
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://example.com/unsub')
     })
 
-    it('handles case-insensitive matching', async () => {
+    it('handles case-insensitive matching', () => {
       const body = '<a href="https://example.com/unsub">UNSUBSCRIBE</a>'
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://example.com/unsub')
     })
 
-    it('skips mailto: links in body', async () => {
+    it('skips mailto: links in body and returns null', () => {
       const body = '<a href="mailto:unsub@example.com">Unsubscribe</a>'
-      const result = await extractUnsubscribeLink('', body)
-      // Falls through to AI since no http link found
-      expect(extractUnsubscribeLinkAI).toHaveBeenCalled()
+      const result = extractUnsubscribeLinkFast('', body)
+      // Returns null since no http link found (no AI fallback in fast version)
       expect(result).toBeNull()
     })
 
-    it('decodes HTML entities in URLs', async () => {
+    it('decodes HTML entities in URLs', () => {
       const body = '<a href="https://example.com/unsub?a=1&amp;b=2">Unsubscribe</a>'
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://example.com/unsub?a=1&b=2')
     })
   })
 
   describe('opt-out pattern extraction', () => {
-    it('extracts opt-out links', async () => {
+    it('extracts opt-out links', () => {
       const body = '<p><a href="https://example.com/optout">Opt out of emails</a></p>'
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://example.com/optout')
     })
 
-    it('extracts opt-out with hyphen', async () => {
+    it('extracts opt-out with hyphen', () => {
       const body = '<a href="https://example.com/optout">Opt-out here</a>'
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://example.com/optout')
     })
 
-    it('extracts optout without space', async () => {
+    it('extracts optout without space', () => {
       const body = '<a href="https://example.com/optout">Optout of all</a>'
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://example.com/optout')
     })
   })
 
   describe('List-Unsubscribe header extraction', () => {
-    it('extracts https URL from header', async () => {
+    it('extracts https URL from header', () => {
       const header = '<https://example.com/unsubscribe>, <mailto:unsub@example.com>'
-      const result = await extractUnsubscribeLink(header, '<p>No unsub link in body</p>')
+      const result = extractUnsubscribeLinkFast(header, '<p>No unsub link in body</p>')
       expect(result).toBe('https://example.com/unsubscribe')
     })
 
-    it('extracts http URL from header', async () => {
+    it('extracts http URL from header', () => {
       const header = '<http://example.com/unsubscribe>'
-      const result = await extractUnsubscribeLink(header, '<p>No unsub link in body</p>')
+      const result = extractUnsubscribeLinkFast(header, '<p>No unsub link in body</p>')
       expect(result).toBe('http://example.com/unsubscribe')
     })
 
-    it('returns null for mailto-only header', async () => {
+    it('returns null for mailto-only header', () => {
       const header = '<mailto:unsub@example.com>'
-      const result = await extractUnsubscribeLink(header, '<p>No unsub link in body</p>')
-      // Falls through to AI
-      expect(extractUnsubscribeLinkAI).toHaveBeenCalled()
+      const result = extractUnsubscribeLinkFast(header, '<p>No unsub link in body</p>')
+      // Returns null (no AI fallback in fast version)
       expect(result).toBeNull()
     })
 
-    it('prefers body link over header', async () => {
+    it('prefers body link over header', () => {
       const header = '<https://header.com/unsubscribe>'
       const body = '<a href="https://body.com/unsub">Unsubscribe</a>'
-      const result = await extractUnsubscribeLink(header, body)
+      const result = extractUnsubscribeLinkFast(header, body)
       // Body takes precedence over header
       expect(result).toBe('https://body.com/unsub')
     })
   })
 
-  describe('AI fallback', () => {
-    it('falls back to AI when no link found', async () => {
-      vi.mocked(extractUnsubscribeLinkAI).mockResolvedValue('https://ai-found.com/unsub')
-
-      const result = await extractUnsubscribeLink('', '<p>Regular email with no unsub link</p>')
-      expect(extractUnsubscribeLinkAI).toHaveBeenCalled()
-      expect(result).toBe('https://ai-found.com/unsub')
-    })
-
-    it('returns null when AI also fails', async () => {
-      vi.mocked(extractUnsubscribeLinkAI).mockResolvedValue(null)
-
-      const result = await extractUnsubscribeLink('', '<p>Regular email with no unsub link</p>')
-      expect(result).toBeNull()
-    })
-  })
-
   describe('edge cases', () => {
-    it('handles empty body and header', async () => {
-      const result = await extractUnsubscribeLink('', '')
+    it('handles empty body and header', () => {
+      const result = extractUnsubscribeLinkFast('', '')
       expect(result).toBeNull()
     })
 
-    it('handles body with no anchor tags', async () => {
+    it('handles body with no anchor tags', () => {
       const body = '<p>This is a plain text email with no links.</p>'
-      const result = await extractUnsubscribeLink('', body)
-      expect(extractUnsubscribeLinkAI).toHaveBeenCalled()
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBeNull()
     })
 
-    it('handles multiple unsubscribe links (returns first)', async () => {
+    it('handles multiple unsubscribe links (returns first)', () => {
       const body = `
         <a href="https://first.com/unsub">Unsubscribe</a>
         <a href="https://second.com/unsub">Unsubscribe from all</a>
       `
-      const result = await extractUnsubscribeLink('', body)
+      const result = extractUnsubscribeLinkFast('', body)
       expect(result).toBe('https://first.com/unsub')
     })
   })

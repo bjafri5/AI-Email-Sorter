@@ -1,7 +1,10 @@
 import { google } from "googleapis";
 import { gmail_v1 } from "googleapis";
 import { prisma } from "./prisma";
-import { extractUnsubscribeLinkAI } from "./ai";
+import pLimit from "p-limit";
+
+// Concurrency limit for fetching email details
+const FETCH_CONCURRENCY = 10;
 
 // Create OAuth2 client
 function getOAuth2Client() {
@@ -46,8 +49,8 @@ export async function getGmailClient(accountId: string) {
   return google.gmail({ version: "v1", auth: oauth2Client });
 }
 
-// Fetch unread emails from inbox
-export async function fetchNewEmails(accountId: string, maxResults = 20) {
+// Fetch unread emails from inbox (parallelized)
+export async function fetchNewEmails(accountId: string, maxResults = 10) {
   const gmail = await getGmailClient(accountId);
 
   const response = await gmail.users.messages.list({
@@ -57,16 +60,15 @@ export async function fetchNewEmails(accountId: string, maxResults = 20) {
   });
 
   const messages = response.data.messages || [];
-  const emails = [];
 
-  for (const message of messages) {
-    const email = await getEmailDetails(gmail, message.id!);
-    if (email) {
-      emails.push(email);
-    }
-  }
+  // Fetch email details in parallel with concurrency limit
+  const limit = pLimit(FETCH_CONCURRENCY);
+  const emailPromises = messages.map((message) =>
+    limit(() => getEmailDetails(gmail, message.id!))
+  );
 
-  return emails;
+  const results = await Promise.all(emailPromises);
+  return results.filter((email) => email !== null);
 }
 
 // Get full email details
@@ -94,9 +96,9 @@ async function getEmailDetails(gmail: gmail_v1.Gmail, messageId: string) {
     body = extractBodyFromParts(message.payload.parts);
   }
 
-  // Extract unsubscribe link from headers
+  // Extract unsubscribe link using regex only (no AI during fetch phase)
   const unsubscribeHeader = getHeader("List-Unsubscribe");
-  const unsubscribeLink = await extractUnsubscribeLink(unsubscribeHeader, body);
+  const unsubscribeLink = extractUnsubscribeLinkFast(unsubscribeHeader, body);
 
   return {
     gmailId: message.id!,
@@ -152,19 +154,6 @@ export function extractName(from: string): string {
   return match ? match[1].replace(/"/g, "").trim() : "";
 }
 
-// Archive email (remove from inbox)
-export async function archiveEmail(accountId: string, gmailId: string) {
-  const gmail = await getGmailClient(accountId);
-
-  await gmail.users.messages.modify({
-    userId: "me",
-    id: gmailId,
-    requestBody: {
-      removeLabelIds: ["INBOX"],
-    },
-  });
-}
-
 // Archive multiple emails
 export async function archiveEmails(accountId: string, gmailIds: string[]) {
   const gmail = await getGmailClient(accountId);
@@ -188,23 +177,31 @@ export async function deleteEmail(accountId: string, gmailId: string) {
   });
 }
 
-// Delete multiple emails
+// Delete multiple emails (batch - moves to trash)
 export async function deleteEmails(accountId: string, gmailIds: string[]) {
+  if (gmailIds.length === 0) return;
+
   const gmail = await getGmailClient(accountId);
 
-  for (const gmailId of gmailIds) {
-    await gmail.users.messages.trash({
-      userId: "me",
-      id: gmailId,
-    });
-  }
+  // Use batchModify to add TRASH label to all emails at once
+  await gmail.users.messages.batchModify({
+    userId: "me",
+    requestBody: {
+      ids: gmailIds,
+      addLabelIds: ["TRASH"],
+      removeLabelIds: ["INBOX"],
+    },
+  });
 }
 
-// Extract unsubscribe link from body or header
-export async function extractUnsubscribeLink(
+/**
+ * Fast regex-based unsubscribe link extraction (no AI)
+ * Used during fetch phase for speed
+ */
+export function extractUnsubscribeLinkFast(
   header: string,
   body: string
-): Promise<string | null> {
+): string | null {
   let match;
 
   // Helper function to search for a keyword pattern
@@ -257,7 +254,7 @@ export async function extractUnsubscribeLink(
     return optOutLink;
   }
 
-  // 4. Fallback: List-Unsubscribe header (skip mailto:)
+  // Fallback: List-Unsubscribe header (skip mailto:)
   if (header) {
     const urlMatch = header.match(/<(https?:\/\/[^>]+)>/);
     if (urlMatch) {
@@ -265,8 +262,8 @@ export async function extractUnsubscribeLink(
     }
   }
 
-  // 5. Fallback: AI extraction
-  return await extractUnsubscribeLinkAI(body);
+  // No AI fallback here - that happens during processing phase if needed
+  return null;
 }
 
 export function decodeHtmlEntities(str: string): string {
@@ -276,33 +273,4 @@ export function decodeHtmlEntities(str: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
-}
-
-export async function trashEmail(
-  accountId: string,
-  gmailId: string
-): Promise<void> {
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
-  });
-
-  if (!account) {
-    throw new Error("Account not found");
-  }
-
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-  oauth2Client.setCredentials({
-    access_token: account.access_token,
-    refresh_token: account.refresh_token,
-  });
-
-  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-
-  await gmail.users.messages.trash({
-    userId: "me",
-    id: gmailId,
-  });
 }

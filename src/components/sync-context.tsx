@@ -55,7 +55,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
     setIsSyncing(true);
     setProgress(null);
-    setProgressText("Fetching...");
+    setProgressText("Fetching emails...");
     setIsError(false);
 
     try {

@@ -1,345 +1,347 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock all dependencies
-vi.mock('@/lib/prisma', () => ({
+vi.mock("@/lib/prisma", () => ({
   prisma: {
     account: {
       findMany: vi.fn(),
-      findUnique: vi.fn(),
       update: vi.fn(),
     },
     category: {
       findMany: vi.fn(),
     },
     email: {
-      findUnique: vi.fn(),
-      create: vi.fn(),
+      findMany: vi.fn(),
+      upsert: vi.fn(),
     },
   },
-}))
+}));
 
-vi.mock('@/lib/gmail', () => ({
+vi.mock("@/lib/gmail", () => ({
   fetchNewEmails: vi.fn(),
-  archiveEmail: vi.fn(),
-}))
+  archiveEmails: vi.fn(),
+}));
 
-vi.mock('@/lib/ai', () => ({
-  classifyEmail: vi.fn(),
-  summarizeEmail: vi.fn(),
-}))
+vi.mock("@/lib/ai", () => ({
+  classifyAndSummarizeEmail: vi.fn(),
+}));
 
-vi.mock('@/lib/email-utils', () => ({
-  cleanEmailBody: vi.fn((body) => body.replace(/<[^>]+>/g, '')),
-}))
+vi.mock("@/lib/email-utils", () => ({
+  cleanEmailBody: vi.fn((body) => body.replace(/<[^>]+>/g, "")),
+}));
 
-import { prisma } from '@/lib/prisma'
-import { fetchNewEmails, archiveEmail } from '@/lib/gmail'
-import { classifyEmail, summarizeEmail } from '@/lib/ai'
-import { cleanEmailBody } from '@/lib/email-utils'
-import { syncEmailsForUser } from '@/lib/email-sync'
+vi.mock("p-limit", () => ({
+  default: () => (fn: () => Promise<unknown>) => fn(),
+}));
 
-describe('syncEmailsForUser', () => {
+import { prisma } from "@/lib/prisma";
+import { fetchNewEmails, archiveEmails } from "@/lib/gmail";
+import { classifyAndSummarizeEmail } from "@/lib/ai";
+import {
+  fetchEmailsForUser,
+  filterExistingEmails,
+  processEmailsInParallel,
+  batchArchiveEmails,
+  updateAccountSyncTime,
+  getUserCategories,
+} from "@/lib/email-sync";
+
+describe("email-sync", () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
-  it('returns results for all accounts', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: 'user1@example.com', userId: 'user1' },
-      { id: 'acc2', email: 'user2@example.com', userId: 'user1' },
-    ] as any)
+  describe("fetchEmailsForUser", () => {
+    it("fetches emails from all accounts", async () => {
+      vi.mocked(prisma.account.findMany).mockResolvedValue([
+        { id: "acc1", email: "user1@example.com", userId: "user1" },
+        { id: "acc2", email: "user2@example.com", userId: "user1" },
+      ] as never);
 
-    vi.mocked(prisma.category.findMany).mockResolvedValue([
-      { id: 'cat1', name: 'Newsletters', description: 'News' },
-    ] as any)
+      vi.mocked(fetchNewEmails).mockResolvedValue([
+        {
+          gmailId: "gmail1",
+          threadId: "thread1",
+          subject: "Test Email",
+          fromEmail: "sender@example.com",
+          fromName: "Sender",
+          snippet: "Test snippet",
+          body: "<p>Test body</p>",
+          receivedAt: new Date(),
+          unsubscribeLink: null,
+        },
+      ]);
 
-    vi.mocked(prisma.account.findUnique).mockResolvedValue({
-      id: 'acc1',
-      lastSyncedAt: null,
-    } as any)
+      const { emails, accountIds } = await fetchEmailsForUser("user1", 10);
 
-    vi.mocked(fetchNewEmails).mockResolvedValue([])
-    vi.mocked(prisma.account.update).mockResolvedValue({} as any)
+      expect(accountIds).toHaveLength(2);
+      expect(emails).toHaveLength(2); // 1 email per account
+      expect(fetchNewEmails).toHaveBeenCalledTimes(2);
+    });
 
-    const results = await syncEmailsForUser('user1')
+    it("returns empty when no accounts", async () => {
+      vi.mocked(prisma.account.findMany).mockResolvedValue([]);
 
-    expect(results).toHaveLength(2)
-    expect(results[0].accountEmail).toBe('user1@example.com')
-    expect(results[1].accountEmail).toBe('user2@example.com')
-  })
+      const { emails, accountIds } = await fetchEmailsForUser("user1");
 
-  it('returns error when no categories defined', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: 'test@example.com', userId: 'user1' },
-    ] as any)
+      expect(emails).toHaveLength(0);
+      expect(accountIds).toHaveLength(0);
+    });
 
-    vi.mocked(prisma.category.findMany).mockResolvedValue([])
+    it("handles fetch errors gracefully per account", async () => {
+      vi.mocked(prisma.account.findMany).mockResolvedValue([
+        { id: "acc1", email: "user1@example.com", userId: "user1" },
+        { id: "acc2", email: "user2@example.com", userId: "user1" },
+      ] as never);
 
-    const results = await syncEmailsForUser('user1')
+      vi.mocked(fetchNewEmails)
+        .mockRejectedValueOnce(new Error("Gmail API error"))
+        .mockResolvedValueOnce([
+          {
+            gmailId: "gmail2",
+            threadId: "thread2",
+            subject: "Test Email 2",
+            fromEmail: "sender@example.com",
+            fromName: "Sender",
+            snippet: "Test snippet",
+            body: "Test body",
+            receivedAt: new Date(),
+            unsubscribeLink: null,
+          },
+        ]);
 
-    expect(results).toHaveLength(1)
-    expect(results[0].errors).toContain('No categories defined')
-    expect(results[0].processed).toBe(0)
-  })
+      const { emails, accountIds } = await fetchEmailsForUser("user1");
 
-  it('processes new emails successfully', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: 'test@example.com', userId: 'user1' },
-    ] as any)
+      expect(accountIds).toHaveLength(2);
+      expect(emails).toHaveLength(1); // Only successful account's emails
+    });
+  });
 
-    vi.mocked(prisma.category.findMany).mockResolvedValue([
-      { id: 'cat1', name: 'Newsletters', description: 'News' },
-    ] as any)
+  describe("filterExistingEmails", () => {
+    it("filters out existing emails", async () => {
+      const emails = [
+        { gmailId: "gmail1", accountId: "acc1" },
+        { gmailId: "gmail2", accountId: "acc1" },
+        { gmailId: "gmail3", accountId: "acc1" },
+      ] as never;
 
-    vi.mocked(prisma.account.findUnique).mockResolvedValue({
-      id: 'acc1',
-      lastSyncedAt: null,
-    } as any)
+      vi.mocked(prisma.email.findMany).mockResolvedValue([
+        { gmailId: "gmail1" },
+        { gmailId: "gmail3" },
+      ] as never);
 
-    vi.mocked(fetchNewEmails).mockResolvedValue([
-      {
-        gmailId: 'gmail1',
-        threadId: 'thread1',
-        subject: 'Test Email',
-        fromEmail: 'sender@example.com',
-        fromName: 'Sender',
-        snippet: 'Test snippet',
-        body: '<p>Test body</p>',
-        receivedAt: new Date(),
-        unsubscribeLink: 'https://example.com/unsub',
-      },
-    ])
+      const { newEmails, skippedCount } = await filterExistingEmails(emails);
 
-    vi.mocked(prisma.email.findUnique).mockResolvedValue(null) // Not a duplicate
-    vi.mocked(cleanEmailBody).mockReturnValue('Test body')
-    vi.mocked(classifyEmail).mockResolvedValue('cat1')
-    vi.mocked(summarizeEmail).mockResolvedValue('Test summary')
-    vi.mocked(prisma.email.create).mockResolvedValue({ id: 'email1' } as any)
-    vi.mocked(archiveEmail).mockResolvedValue(undefined)
-    vi.mocked(prisma.account.update).mockResolvedValue({} as any)
+      expect(newEmails).toHaveLength(1);
+      expect(newEmails[0].gmailId).toBe("gmail2");
+      expect(skippedCount).toBe(2);
+    });
 
-    const results = await syncEmailsForUser('user1')
+    it("returns all emails when none exist", async () => {
+      const emails = [
+        { gmailId: "gmail1", accountId: "acc1" },
+        { gmailId: "gmail2", accountId: "acc1" },
+      ] as never;
 
-    expect(results[0].fetched).toBe(1)
-    expect(results[0].processed).toBe(1)
-    expect(results[0].skipped).toBe(0)
-    expect(results[0].errors).toHaveLength(0)
+      vi.mocked(prisma.email.findMany).mockResolvedValue([]);
 
-    expect(prisma.email.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        gmailId: 'gmail1',
-        categoryId: 'cat1',
-        summary: 'Test summary',
-        isArchived: true,
-      }),
-    })
+      const { newEmails, skippedCount } = await filterExistingEmails(emails);
 
-    expect(archiveEmail).toHaveBeenCalledWith('acc1', 'gmail1')
-  })
+      expect(newEmails).toHaveLength(2);
+      expect(skippedCount).toBe(0);
+    });
 
-  it('skips duplicate emails', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: 'test@example.com', userId: 'user1' },
-    ] as any)
+    it("handles empty input", async () => {
+      const { newEmails, skippedCount } = await filterExistingEmails([]);
 
-    vi.mocked(prisma.category.findMany).mockResolvedValue([
-      { id: 'cat1', name: 'Newsletters', description: 'News' },
-    ] as any)
+      expect(newEmails).toHaveLength(0);
+      expect(skippedCount).toBe(0);
+      expect(prisma.email.findMany).not.toHaveBeenCalled();
+    });
+  });
 
-    vi.mocked(prisma.account.findUnique).mockResolvedValue({
-      id: 'acc1',
-      lastSyncedAt: null,
-    } as any)
+  describe("processEmailsInParallel", () => {
+    const mockEmail = {
+      gmailId: "gmail1",
+      threadId: "thread1",
+      accountId: "acc1",
+      subject: "Test Email",
+      fromEmail: "sender@example.com",
+      fromName: "Sender",
+      snippet: "Test snippet",
+      body: "<p>Test body</p>",
+      receivedAt: new Date(),
+      unsubscribeLink: "https://example.com/unsub",
+    };
 
-    vi.mocked(fetchNewEmails).mockResolvedValue([
-      {
-        gmailId: 'gmail1',
-        threadId: 'thread1',
-        subject: 'Test Email',
-        fromEmail: 'sender@example.com',
-        fromName: 'Sender',
-        snippet: 'Test snippet',
-        body: '<p>Test body</p>',
-        receivedAt: new Date(),
-        unsubscribeLink: null,
-      },
-    ])
+    const mockCategories = [
+      { id: "cat1", name: "Newsletters", description: "News" },
+    ];
 
-    // Email already exists
-    vi.mocked(prisma.email.findUnique).mockResolvedValue({ id: 'existing' } as any)
-    vi.mocked(prisma.account.update).mockResolvedValue({} as any)
+    it("processes emails and reports progress", async () => {
+      vi.mocked(classifyAndSummarizeEmail).mockResolvedValue({
+        categoryId: "cat1",
+        summary: "Test summary",
+      });
+      vi.mocked(prisma.email.upsert).mockResolvedValue({ id: "email1" } as never);
 
-    const results = await syncEmailsForUser('user1')
+      const progressCalls: unknown[] = [];
+      const onProgress = vi.fn((...args) => progressCalls.push(args));
 
-    expect(results[0].fetched).toBe(1)
-    expect(results[0].processed).toBe(0)
-    expect(results[0].skipped).toBe(1)
-    expect(prisma.email.create).not.toHaveBeenCalled()
-    expect(classifyEmail).not.toHaveBeenCalled()
-  })
+      const { results, counters } = await processEmailsInParallel(
+        [mockEmail],
+        mockCategories,
+        0,
+        onProgress
+      );
 
-  it('handles email processing errors gracefully', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: 'test@example.com', userId: 'user1' },
-    ] as any)
+      expect(results).toHaveLength(1);
+      expect(results[0].success).toBe(true);
+      expect(counters.processed).toBe(1);
+      expect(counters.errors).toBe(0);
+      expect(onProgress).toHaveBeenCalledTimes(1);
+    });
 
-    vi.mocked(prisma.category.findMany).mockResolvedValue([
-      { id: 'cat1', name: 'Newsletters', description: 'News' },
-    ] as any)
+    it("handles classification errors gracefully", async () => {
+      vi.mocked(classifyAndSummarizeEmail).mockRejectedValue(
+        new Error("AI error")
+      );
 
-    vi.mocked(prisma.account.findUnique).mockResolvedValue({
-      id: 'acc1',
-      lastSyncedAt: null,
-    } as any)
+      const { results, counters } = await processEmailsInParallel(
+        [mockEmail],
+        mockCategories,
+        0
+      );
 
-    vi.mocked(fetchNewEmails).mockResolvedValue([
-      {
-        gmailId: 'gmail1',
-        threadId: 'thread1',
-        subject: 'Test Email',
-        fromEmail: 'sender@example.com',
-        fromName: 'Sender',
-        snippet: 'Test snippet',
-        body: '<p>Test body</p>',
-        receivedAt: new Date(),
-        unsubscribeLink: null,
-      },
-    ])
+      expect(results[0].success).toBe(false);
+      expect(counters.processed).toBe(0);
+      expect(counters.errors).toBe(1);
+    });
 
-    vi.mocked(prisma.email.findUnique).mockResolvedValue(null)
-    vi.mocked(cleanEmailBody).mockReturnValue('Test body')
-    vi.mocked(classifyEmail).mockRejectedValue(new Error('AI error'))
-    vi.mocked(prisma.account.update).mockResolvedValue({} as any)
+    it("handles duplicate emails (P2002 error)", async () => {
+      vi.mocked(classifyAndSummarizeEmail).mockResolvedValue({
+        categoryId: "cat1",
+        summary: "Test summary",
+      });
 
-    const results = await syncEmailsForUser('user1')
+      const p2002Error = new Error("Unique constraint") as Error & {
+        code: string;
+      };
+      p2002Error.code = "P2002";
+      vi.mocked(prisma.email.upsert).mockRejectedValue(p2002Error);
 
-    expect(results[0].processed).toBe(0)
-    expect(results[0].errors).toHaveLength(1)
-    expect(results[0].errors[0]).toContain('Failed to process email gmail1')
-  })
+      const { results, counters } = await processEmailsInParallel(
+        [mockEmail],
+        mockCategories,
+        0
+      );
 
-  it('handles fetch errors gracefully', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: 'test@example.com', userId: 'user1' },
-    ] as any)
+      expect(results[0].success).toBe(false);
+      expect(counters.skipped).toBe(1);
+      expect(counters.processed).toBe(0);
+    });
 
-    vi.mocked(prisma.category.findMany).mockResolvedValue([
-      { id: 'cat1', name: 'Newsletters', description: 'News' },
-    ] as any)
+    it("tracks initial skipped count", async () => {
+      vi.mocked(classifyAndSummarizeEmail).mockResolvedValue({
+        categoryId: "cat1",
+        summary: "Test summary",
+      });
+      vi.mocked(prisma.email.upsert).mockResolvedValue({ id: "email1" } as never);
 
-    vi.mocked(prisma.account.findUnique).mockResolvedValue({
-      id: 'acc1',
-      lastSyncedAt: null,
-    } as any)
+      const { counters } = await processEmailsInParallel(
+        [mockEmail],
+        mockCategories,
+        5 // Initial skipped
+      );
 
-    vi.mocked(fetchNewEmails).mockRejectedValue(new Error('Gmail API error'))
+      expect(counters.skipped).toBe(5);
+      expect(counters.processed).toBe(1);
+    });
+  });
 
-    const results = await syncEmailsForUser('user1')
+  describe("batchArchiveEmails", () => {
+    it("archives emails grouped by account", async () => {
+      vi.mocked(archiveEmails).mockResolvedValue(undefined);
 
-    expect(results[0].fetched).toBe(0)
-    expect(results[0].processed).toBe(0)
-    expect(results[0].errors).toHaveLength(1)
-    expect(results[0].errors[0]).toContain('Failed to fetch emails')
-  })
+      const results = [
+        {
+          emailData: { gmailId: "gmail1", accountId: "acc1" },
+          success: true,
+        },
+        {
+          emailData: { gmailId: "gmail2", accountId: "acc1" },
+          success: true,
+        },
+        {
+          emailData: { gmailId: "gmail3", accountId: "acc2" },
+          success: true,
+        },
+        {
+          emailData: { gmailId: "gmail4", accountId: "acc1" },
+          success: false,
+        },
+      ] as never;
 
-  it('handles no accounts', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([])
+      await batchArchiveEmails(results);
 
-    const results = await syncEmailsForUser('user1')
+      expect(archiveEmails).toHaveBeenCalledTimes(2);
+      expect(archiveEmails).toHaveBeenCalledWith("acc1", ["gmail1", "gmail2"]);
+      expect(archiveEmails).toHaveBeenCalledWith("acc2", ["gmail3"]);
+    });
 
-    expect(results).toHaveLength(0)
-  })
+    it("handles no successful results", async () => {
+      const results = [
+        {
+          emailData: { gmailId: "gmail1", accountId: "acc1" },
+          success: false,
+        },
+      ] as never;
 
-  it('updates lastSyncedAt after processing', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: 'test@example.com', userId: 'user1' },
-    ] as any)
+      await batchArchiveEmails(results);
 
-    vi.mocked(prisma.category.findMany).mockResolvedValue([
-      { id: 'cat1', name: 'Newsletters', description: 'News' },
-    ] as any)
+      expect(archiveEmails).not.toHaveBeenCalled();
+    });
+  });
 
-    vi.mocked(prisma.account.findUnique).mockResolvedValue({
-      id: 'acc1',
-      lastSyncedAt: null,
-    } as any)
+  describe("updateAccountSyncTime", () => {
+    it("updates sync time for all accounts", async () => {
+      vi.mocked(prisma.account.update).mockResolvedValue({} as never);
 
-    vi.mocked(fetchNewEmails).mockResolvedValue([])
-    vi.mocked(prisma.account.update).mockResolvedValue({} as any)
+      await updateAccountSyncTime(["acc1", "acc2"]);
 
-    await syncEmailsForUser('user1')
+      expect(prisma.account.update).toHaveBeenCalledTimes(2);
+      expect(prisma.account.update).toHaveBeenCalledWith({
+        where: { id: "acc1" },
+        data: { lastSyncedAt: expect.any(Date) },
+      });
+      expect(prisma.account.update).toHaveBeenCalledWith({
+        where: { id: "acc2" },
+        data: { lastSyncedAt: expect.any(Date) },
+      });
+    });
+  });
 
-    expect(prisma.account.update).toHaveBeenCalledWith({
-      where: { id: 'acc1' },
-      data: { lastSyncedAt: expect.any(Date) },
-    })
-  })
+  describe("getUserCategories", () => {
+    it("returns categories for user", async () => {
+      const categories = [
+        { id: "cat1", name: "Newsletters", description: "News" },
+      ];
+      vi.mocked(prisma.category.findMany).mockResolvedValue(categories as never);
 
-  it('handles emails with no category match', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: 'test@example.com', userId: 'user1' },
-    ] as any)
+      const result = await getUserCategories("user1");
 
-    vi.mocked(prisma.category.findMany).mockResolvedValue([
-      { id: 'cat1', name: 'Newsletters', description: 'News' },
-    ] as any)
+      expect(result).toEqual(categories);
+      expect(prisma.category.findMany).toHaveBeenCalledWith({
+        where: { userId: "user1" },
+      });
+    });
 
-    vi.mocked(prisma.account.findUnique).mockResolvedValue({
-      id: 'acc1',
-      lastSyncedAt: null,
-    } as any)
+    it("returns empty array when no categories", async () => {
+      vi.mocked(prisma.category.findMany).mockResolvedValue([]);
 
-    vi.mocked(fetchNewEmails).mockResolvedValue([
-      {
-        gmailId: 'gmail1',
-        threadId: 'thread1',
-        subject: 'Random Email',
-        fromEmail: 'sender@example.com',
-        fromName: 'Sender',
-        snippet: 'Random snippet',
-        body: '<p>Random body</p>',
-        receivedAt: new Date(),
-        unsubscribeLink: null,
-      },
-    ])
+      const result = await getUserCategories("user1");
 
-    vi.mocked(prisma.email.findUnique).mockResolvedValue(null)
-    vi.mocked(cleanEmailBody).mockReturnValue('Random body')
-    vi.mocked(classifyEmail).mockResolvedValue(null) // No category match
-    vi.mocked(summarizeEmail).mockResolvedValue('Random summary')
-    vi.mocked(prisma.email.create).mockResolvedValue({ id: 'email1' } as any)
-    vi.mocked(archiveEmail).mockResolvedValue(undefined)
-    vi.mocked(prisma.account.update).mockResolvedValue({} as any)
-
-    const results = await syncEmailsForUser('user1')
-
-    expect(results[0].processed).toBe(1)
-    expect(prisma.email.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        categoryId: null, // Uncategorized
-      }),
-    })
-  })
-
-  it('handles account with unknown email', async () => {
-    vi.mocked(prisma.account.findMany).mockResolvedValue([
-      { id: 'acc1', email: null, userId: 'user1' }, // No email stored
-    ] as any)
-
-    vi.mocked(prisma.category.findMany).mockResolvedValue([
-      { id: 'cat1', name: 'Newsletters', description: 'News' },
-    ] as any)
-
-    vi.mocked(prisma.account.findUnique).mockResolvedValue({
-      id: 'acc1',
-      lastSyncedAt: null,
-    } as any)
-
-    vi.mocked(fetchNewEmails).mockResolvedValue([])
-    vi.mocked(prisma.account.update).mockResolvedValue({} as any)
-
-    const results = await syncEmailsForUser('user1')
-
-    expect(results[0].accountEmail).toBe('Unknown')
-  })
-})
+      expect(result).toHaveLength(0);
+    });
+  });
+});

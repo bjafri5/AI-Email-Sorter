@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { trashEmail } from "@/lib/gmail";
+import { deleteEmails } from "@/lib/gmail";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -43,84 +43,48 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Create SSE stream
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder();
+  try {
+    // Group emails by account for batch deletion
+    const emailsByAccount = new Map<string, string[]>();
+    for (const email of emails) {
+      const existing = emailsByAccount.get(email.account.id) || [];
+      existing.push(email.gmailId);
+      emailsByAccount.set(email.account.id, existing);
+    }
 
-      const send = (data: any) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-      };
+    // Batch delete from Gmail (all accounts in parallel)
+    await Promise.all(
+      Array.from(emailsByAccount.entries()).map(([accountId, gmailIds]) =>
+        deleteEmails(accountId, gmailIds)
+      )
+    );
 
-      send({
-        type: "start",
-        total: emails.length,
-        processed: 0,
-      });
+    // Delete from database
+    await prisma.email.deleteMany({
+      where: { id: { in: emails.map((e) => e.id) } },
+    });
 
-      let succeeded = 0;
-      let failed = 0;
-
-      for (let i = 0; i < emails.length; i++) {
-        const email = emails[i];
-
-        send({
-          type: "processing",
-          total: emails.length,
-          processed: i,
-          succeeded,
-          failed,
-        });
-
-        try {
-          // Move to trash in Gmail
-          await trashEmail(email.account.id, email.gmailId);
-
-          // Delete from database
-          await prisma.email.delete({
-            where: { id: email.id },
-          });
-
-          succeeded++;
-
-          send({
-            type: "progress",
-            total: emails.length,
-            processed: i + 1,
-            succeeded,
-            failed,
-          });
-        } catch (error) {
-          console.error(`Failed to delete email ${email.id}:`, error);
-          failed++;
-
-          send({
-            type: "progress",
-            total: emails.length,
-            processed: i + 1,
-            succeeded,
-            failed,
-          });
-        }
+    return new Response(
+      JSON.stringify({
+        success: true,
+        deleted: emails.length,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
       }
-
-      send({
-        type: "complete",
-        total: emails.length,
-        processed: emails.length,
-        succeeded,
-        failed,
-      });
-
-      controller.close();
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+    );
+  } catch (error) {
+    console.error("Failed to delete emails:", error);
+    return new Response(
+      JSON.stringify({
+        error: "Failed to delete emails",
+        message: error instanceof Error ? error.message : String(error),
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
 }
