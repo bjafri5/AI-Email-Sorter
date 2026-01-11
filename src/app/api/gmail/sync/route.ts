@@ -7,7 +7,7 @@ import { cleanEmailBody } from "@/lib/email-utils";
 interface EmailWithAccount {
   accountId: string;
   gmailId: string;
-  threadId: string | null;
+  threadId: string | null | undefined;
   subject: string;
   fromEmail: string;
   fromName: string | null;
