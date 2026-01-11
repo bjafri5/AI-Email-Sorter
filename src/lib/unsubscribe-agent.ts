@@ -1,4 +1,4 @@
-import { chromium, Browser, Page, FrameLocator } from "playwright";
+import { chromium, firefox, Browser, Page, FrameLocator } from "playwright";
 import { openai } from "./openai";
 
 interface UnsubscribeResult {
@@ -31,23 +31,47 @@ export async function unsubscribeFromLink(
   unsubscribeLink: string,
   userInfo: UserInfo
 ): Promise<UnsubscribeResult> {
-  let browser: Browser | null = null;
-
   console.log("\n" + "=".repeat(60));
   console.log(`UNSUBSCRIBE: ${unsubscribeLink}`);
   console.log(`USER: ${userInfo.email} (${userInfo.name || "no name"})`);
   console.log("=".repeat(60));
 
+  // Try Chromium first
+  const chromiumResult = await tryWithBrowser("chromium", unsubscribeLink, userInfo);
+
+  // If HTTP2 error, fallback to Firefox
+  if (!chromiumResult.success && chromiumResult.message.includes("ERR_HTTP2_PROTOCOL_ERROR")) {
+    console.log("\nHTTP2 error detected, retrying with Firefox...\n");
+    return tryWithBrowser("firefox", unsubscribeLink, userInfo);
+  }
+
+  return chromiumResult;
+}
+
+async function tryWithBrowser(
+  browserType: "chromium" | "firefox",
+  unsubscribeLink: string,
+  userInfo: UserInfo
+): Promise<UnsubscribeResult> {
+  let browser: Browser | null = null;
+
   try {
-    console.log("Launching Chromium browser...");
+    console.log(`Launching ${browserType} browser...`);
     const launchStart = Date.now();
-    browser = await chromium.launch({ headless: true, timeout: 30000 });
+
+    if (browserType === "firefox") {
+      browser = await firefox.launch({ headless: true, timeout: 30000 });
+    } else {
+      browser = await chromium.launch({ headless: true, timeout: 30000 });
+    }
     console.log(`Browser launched in ${Date.now() - launchStart}ms`);
 
     const context = await browser.newContext({
       userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
-      viewport: { width: 1280, height: 720 },
+        browserType === "firefox"
+          ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+          : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      viewport: { width: 1920, height: 1080 },
     });
 
     const page = await context.newPage();
@@ -99,12 +123,13 @@ export async function unsubscribeFromLink(
       method: "ai",
       message: "Could not complete unsubscribe after multiple attempts",
     };
-  } catch (error: any) {
-    console.log("ERROR:", error.message || error);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.log("ERROR:", errorMessage);
     return {
       success: false,
       method: "ai",
-      message: error.message || String(error),
+      message: errorMessage,
     };
   } finally {
     if (browser) {
