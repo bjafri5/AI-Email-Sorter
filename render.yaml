@@ -8,15 +8,11 @@ databases:
 services:
   - type: web
     name: email-sorter
-    runtime: node
+    runtime: docker
     plan: starter
     region: oregon
-    buildCommand: npm install && npx playwright install-deps firefox && npx playwright install firefox && npm run build
-    startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: NODE_VERSION
-        value: "25"
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
