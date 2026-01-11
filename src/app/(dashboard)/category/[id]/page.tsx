@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { EmailList } from "@/components/email-list";
+import { CategoryHeader } from "@/components/category-header";
 
 interface CategoryPageProps {
   params: Promise<{ id: string }>;
@@ -72,11 +73,20 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
         </Link>
       </div>
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">{categoryName}</h1>
-        <p className="text-gray-500">{categoryDescription}</p>
-        <p className="text-sm text-gray-400 mt-1">{emails.length} emails</p>
-      </div>
+      {isUncategorized ? (
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold">{categoryName}</h1>
+          <p className="text-gray-500">{categoryDescription}</p>
+          <p className="text-sm text-gray-400 mt-1">{emails.length} emails</p>
+        </div>
+      ) : (
+        <CategoryHeader
+          categoryId={id}
+          categoryName={categoryName}
+          categoryDescription={categoryDescription}
+          emailCount={emails.length}
+        />
+      )}
 
       <EmailList emails={emails} categoryId={isUncategorized ? null : id} isUncategorized={isUncategorized} />
     </div>

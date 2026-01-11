@@ -72,13 +72,25 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const category = await prisma.category.deleteMany({
+  // Verify the category belongs to the user
+  const category = await prisma.category.findFirst({
     where: { id, userId: session.user.id },
   });
 
-  if (category.count === 0) {
+  if (!category) {
     return NextResponse.json({ error: "Category not found" }, { status: 404 });
   }
+
+  // Move all emails in this category to uncategorized (set categoryId to null)
+  await prisma.email.updateMany({
+    where: { categoryId: id },
+    data: { categoryId: null },
+  });
+
+  // Now delete the category
+  await prisma.category.delete({
+    where: { id },
+  });
 
   return NextResponse.json({ success: true });
 }

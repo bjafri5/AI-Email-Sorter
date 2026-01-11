@@ -30,7 +30,7 @@ export default async function DashboardLayout({
       <header className="border-b bg-white sticky top-0 z-10">
         <div className="px-6 py-4 flex justify-between items-center">
           <Link href="/dashboard">
-            <h1 className="text-xl font-bold">Email Sorter</h1>
+            <h1 className="text-xl font-bold">AI Email Sorter</h1>
           </Link>
           <HeaderControls
             totalEmails={totalEmails}

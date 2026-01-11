@@ -316,6 +316,7 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
     // Get the selected emails' info for the progress log
     const selectedEmails = emails.filter((e) => selectedIds.has(e.id));
     const initialLog: RecategorizeProgressLogItem[] = selectedEmails.map((e) => ({
+      emailId: e.id,
       fromEmail: e.fromEmail,
       fromName: e.fromName,
       status: "pending" as const,
@@ -359,10 +360,10 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
             const data = JSON.parse(line.slice(6));
 
             if (data.type === "processing") {
-              // Mark current email as processing
+              // Mark current email as processing (by unique emailId)
               setRecategorizeProgressLog((prev) =>
                 prev.map((item) =>
-                  item.fromEmail === data.current
+                  item.emailId === data.currentId
                     ? { ...item, status: "processing" }
                     : item
                 )
@@ -376,10 +377,10 @@ export function EmailList({ emails, categoryId, isUncategorized = false }: Email
             }
 
             if (data.type === "progress" && data.result) {
-              // Update the completed email's status
+              // Update the completed email's status (by unique emailId)
               setRecategorizeProgressLog((prev) =>
                 prev.map((item) =>
-                  item.fromEmail === data.result.fromEmail
+                  item.emailId === data.result.emailId
                     ? {
                         ...item,
                         status: data.result.success ? "success" : "failed",

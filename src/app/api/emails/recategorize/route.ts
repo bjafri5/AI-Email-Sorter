@@ -85,6 +85,7 @@ export async function POST(request: Request) {
             processed,
             succeeded,
             failed,
+            currentId: email.id,
             current: email.fromEmail,
           });
 

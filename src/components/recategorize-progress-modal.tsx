@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 
 export interface RecategorizeProgressLogItem {
+  emailId: string;
   fromEmail: string;
   fromName: string | null;
   status: "pending" | "processing" | "success" | "failed";

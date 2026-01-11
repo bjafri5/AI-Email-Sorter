@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
+import { GoogleButton } from "@/components/google-button";
 import {
   Card,
   CardContent,
@@ -160,9 +161,9 @@ export function ConnectedAccounts({ accounts, userEmail }: ConnectedAccountsProp
               })
             )}
           </div>
-          <Button onClick={handleConnectAccount} className="mt-4 w-full">
+          <GoogleButton onClick={handleConnectAccount} className="mt-4 w-full">
             Connect Another Gmail Account
-          </Button>
+          </GoogleButton>
         </CardContent>
       </Card>
     </>

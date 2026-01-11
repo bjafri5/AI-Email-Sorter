@@ -205,32 +205,56 @@ export async function extractUnsubscribeLink(
   header: string,
   body: string
 ): Promise<string | null> {
-  // 1. Look for anchor tags with "unsubscribe" in the link text
-  const anchorPattern =
-    /<a[^>]*href=["']([^"']+)["'][^>]*>[^<]*unsubscribe[^<]*<\/a>/gi;
   let match;
-  while ((match = anchorPattern.exec(body)) !== null) {
-    if (!match[1].startsWith("mailto:")) {
-      return decodeHtmlEntities(match[1]);
+
+  // Helper function to search for a keyword pattern
+  const searchForKeyword = (keyword: string): string | null => {
+    // 1. Look for anchor tags with keyword in the link text
+    const anchorPattern = new RegExp(
+      `<a[^>]*href=["']([^"']+)["'][^>]*>[^<]*${keyword}[^<]*<\\/a>`,
+      "gi"
+    );
+    while ((match = anchorPattern.exec(body)) !== null) {
+      if (!match[1].startsWith("mailto:")) {
+        return decodeHtmlEntities(match[1]);
+      }
     }
+
+    // 2. Look for keyword BEFORE a link (common pattern: "unsubscribe click here")
+    const beforePattern = new RegExp(
+      `${keyword}[^<]{0,100}<a[^>]*href=["']([^"']+)["'][^>]*>`,
+      "gi"
+    );
+    while ((match = beforePattern.exec(body)) !== null) {
+      if (!match[1].startsWith("mailto:")) {
+        return decodeHtmlEntities(match[1]);
+      }
+    }
+
+    // 3. Look for keyword AFTER a link (within 100 chars after </a>)
+    const afterPattern = new RegExp(
+      `<a[^>]*href=["']([^"']+)["'][^>]*>[^<]*<\\/a>[^<]{0,100}${keyword}`,
+      "gi"
+    );
+    while ((match = afterPattern.exec(body)) !== null) {
+      if (!match[1].startsWith("mailto:")) {
+        return decodeHtmlEntities(match[1]);
+      }
+    }
+
+    return null;
+  };
+
+  // First check for "unsubscribe"
+  const unsubscribeLink = searchForKeyword("unsubscribe");
+  if (unsubscribeLink) {
+    return unsubscribeLink;
   }
 
-  // 2. Look for "unsubscribe" BEFORE a link (common pattern: "unsubscribe click here")
-  const beforePattern =
-    /unsubscribe[^<]{0,100}<a[^>]*href=["']([^"']+)["'][^>]*>/gi;
-  while ((match = beforePattern.exec(body)) !== null) {
-    if (!match[1].startsWith("mailto:")) {
-      return decodeHtmlEntities(match[1]);
-    }
-  }
-
-  // 3. Look for "unsubscribe" AFTER a link (within 100 chars after </a>)
-  const afterPattern =
-    /<a[^>]*href=["']([^"']+)["'][^>]*>[^<]*<\/a>[^<]{0,100}unsubscribe/gi;
-  while ((match = afterPattern.exec(body)) !== null) {
-    if (!match[1].startsWith("mailto:")) {
-      return decodeHtmlEntities(match[1]);
-    }
+  // Then check for "opt out" / "opt-out" / "optout"
+  const optOutLink = searchForKeyword("opt[\\s-]?out");
+  if (optOutLink) {
+    return optOutLink;
   }
 
   // 4. Fallback: List-Unsubscribe header (skip mailto:)
