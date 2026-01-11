@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import Link from "next/link";
 import { friendlyUnsubscribeErrorMessage } from "@/lib/error-messages";
+import {
+  UnsubscribeProgressModal,
+  ProgressLogItem,
+} from "@/components/unsubscribe-progress-modal";
 
 interface Email {
   id: string;
@@ -59,6 +63,8 @@ export function EmailList({ emails, categoryId }: EmailListProps) {
     UnsubscribeResult[]
   >([]);
 
+  // Progress modal state
+  const [showProgressModal, setShowProgressModal] = useState(false);
   const [unsubscribeProgress, setUnsubscribeProgress] = useState<{
     total: number;
     processed: number;
@@ -66,6 +72,7 @@ export function EmailList({ emails, categoryId }: EmailListProps) {
     failed: number;
     current?: string;
   } | null>(null);
+  const [progressLog, setProgressLog] = useState<ProgressLogItem[]>([]);
 
   const [deleteProgress, setDeleteProgress] = useState<{
     total: number;
@@ -172,7 +179,16 @@ export function EmailList({ emails, categoryId }: EmailListProps) {
   const performUnsubscribe = async () => {
     if (selectedIds.size === 0) return;
 
+    // Get the selected emails' info for the progress log
+    const selectedEmails = emails.filter((e) => selectedIds.has(e.id));
+    const initialLog = selectedEmails.map((e) => ({
+      fromEmail: e.fromEmail,
+      status: "pending" as const,
+    }));
+
     setIsUnsubscribing(true);
+    setProgressLog(initialLog);
+    setShowProgressModal(true);
     setUnsubscribeProgress({
       total: selectedIds.size,
       processed: 0,
@@ -207,7 +223,37 @@ export function EmailList({ emails, categoryId }: EmailListProps) {
           if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
 
-            if (data.type === "processing" || data.type === "progress") {
+            if (data.type === "processing") {
+              // Mark current email as processing
+              setProgressLog((prev) =>
+                prev.map((item) =>
+                  item.fromEmail === data.current
+                    ? { ...item, status: "processing" }
+                    : item
+                )
+              );
+              setUnsubscribeProgress({
+                total: data.total,
+                processed: data.processed,
+                succeeded: data.succeeded,
+                failed: data.failed,
+                current: data.current,
+              });
+            }
+
+            if (data.type === "progress" && data.result) {
+              // Update the completed email's status
+              setProgressLog((prev) =>
+                prev.map((item) =>
+                  item.fromEmail === data.result.fromEmail
+                    ? {
+                        ...item,
+                        status: data.result.success ? "success" : "failed",
+                        message: data.result.message,
+                      }
+                    : item
+                )
+              );
               setUnsubscribeProgress({
                 total: data.total,
                 processed: data.processed,
@@ -219,13 +265,18 @@ export function EmailList({ emails, categoryId }: EmailListProps) {
 
             if (data.type === "complete") {
               setUnsubscribeResults(data.results);
-              setShowResultsModal(true);
+              // Keep progress modal open briefly, then switch to results
+              setTimeout(() => {
+                setShowProgressModal(false);
+                setShowResultsModal(true);
+              }, 500);
             }
           }
         }
       }
     } catch (error) {
       console.error("Unsubscribe error:", error);
+      setShowProgressModal(false);
     } finally {
       setIsUnsubscribing(false);
       setSelectedIds(new Set());
@@ -276,6 +327,12 @@ export function EmailList({ emails, categoryId }: EmailListProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <UnsubscribeProgressModal
+        open={showProgressModal}
+        progressLog={progressLog}
+        progress={unsubscribeProgress}
+      />
 
       {/* Results Modal */}
       <Dialog open={showResultsModal} onOpenChange={setShowResultsModal}>
@@ -328,7 +385,13 @@ export function EmailList({ emails, categoryId }: EmailListProps) {
             </div>
           )}
 
-          <Button onClick={() => setShowResultsModal(false)} className="mt-4">
+          <Button
+            onClick={() => {
+              setShowResultsModal(false);
+              setProgressLog([]);
+            }}
+            className="mt-4"
+          >
             Close
           </Button>
         </DialogContent>

@@ -12,6 +12,10 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { friendlyUnsubscribeErrorMessage } from "@/lib/error-messages";
+import {
+  UnsubscribeProgressModal,
+  ProgressLogItem,
+} from "@/components/unsubscribe-progress-modal";
 
 interface EmailActionsProps {
   emailId: string;
@@ -45,6 +49,16 @@ export function EmailActions({
   const [showResultModal, setShowResultModal] = useState(false);
   const [unsubscribeResult, setUnsubscribeResult] =
     useState<UnsubscribeResult | null>(null);
+
+  // Progress modal state
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressLog, setProgressLog] = useState<ProgressLogItem[]>([]);
+  const [unsubscribeProgress, setUnsubscribeProgress] = useState<{
+    total: number;
+    processed: number;
+    succeeded: number;
+    failed: number;
+  } | null>(null);
 
   const openConfirmModal = (action: "delete" | "unsubscribe") => {
     setConfirmAction(action);
@@ -98,6 +112,14 @@ export function EmailActions({
 
   const performUnsubscribe = async () => {
     setIsUnsubscribing(true);
+    setProgressLog([{ fromEmail, status: "pending" }]);
+    setShowProgressModal(true);
+    setUnsubscribeProgress({
+      total: 1,
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+    });
 
     try {
       const response = await fetch("/api/emails/unsubscribe", {
@@ -126,13 +148,43 @@ export function EmailActions({
           if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
 
+            if (data.type === "processing") {
+              setProgressLog([{ fromEmail, status: "processing" }]);
+              setUnsubscribeProgress({
+                total: 1,
+                processed: 0,
+                succeeded: 0,
+                failed: 0,
+              });
+            }
+
+            if (data.type === "progress" && data.result) {
+              setProgressLog([
+                {
+                  fromEmail,
+                  status: data.result.success ? "success" : "failed",
+                  message: data.result.message,
+                },
+              ]);
+              setUnsubscribeProgress({
+                total: 1,
+                processed: 1,
+                succeeded: data.result.success ? 1 : 0,
+                failed: data.result.success ? 0 : 1,
+              });
+            }
+
             if (data.type === "complete" && data.results?.length > 0) {
               const result = data.results[0];
               setUnsubscribeResult({
                 success: result.success,
                 message: result.message,
               });
-              setShowResultModal(true);
+              // Transition from progress modal to result modal
+              setTimeout(() => {
+                setShowProgressModal(false);
+                setShowResultModal(true);
+              }, 500);
             }
           }
         }
@@ -141,6 +193,7 @@ export function EmailActions({
       router.refresh();
     } catch (error) {
       console.error("Unsubscribe error:", error);
+      setShowProgressModal(false);
       setUnsubscribeResult({
         success: false,
         message: String(error),
@@ -148,6 +201,7 @@ export function EmailActions({
       setShowResultModal(true);
     } finally {
       setIsUnsubscribing(false);
+      setUnsubscribeProgress(null);
     }
   };
 
@@ -186,6 +240,12 @@ export function EmailActions({
         </DialogContent>
       </Dialog>
 
+      <UnsubscribeProgressModal
+        open={showProgressModal}
+        progressLog={progressLog}
+        progress={unsubscribeProgress}
+      />
+
       {/* Unsubscribe Result Modal */}
       <Dialog open={showResultModal} onOpenChange={setShowResultModal}>
         <DialogContent className="max-w-sm">
@@ -220,7 +280,13 @@ export function EmailActions({
               </p>
             </div>
           )}
-          <Button onClick={() => setShowResultModal(false)} className="mt-2">
+          <Button
+            onClick={() => {
+              setShowResultModal(false);
+              setProgressLog([]);
+            }}
+            className="mt-2"
+          >
             Close
           </Button>
         </DialogContent>

@@ -25,6 +25,9 @@ export default async function EmailPage({ params }: EmailPageProps) {
     },
     include: {
       category: true,
+      account: {
+        select: { email: true },
+      },
     },
   });
 
@@ -55,6 +58,11 @@ export default async function EmailPage({ params }: EmailPageProps) {
                 ? `${email.fromName} <${email.fromEmail}>`
                 : email.fromEmail}
             </p>
+            {email.account.email && (
+              <p>
+                <span className="font-medium">To:</span> {email.account.email}
+              </p>
+            )}
             <p>
               <span className="font-medium">Date:</span>{" "}
               {new Date(email.receivedAt).toLocaleString()}
