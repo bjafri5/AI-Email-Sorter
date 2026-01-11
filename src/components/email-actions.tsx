@@ -112,7 +112,7 @@ export function EmailActions({
 
   const performUnsubscribe = async () => {
     setIsUnsubscribing(true);
-    setProgressLog([{ fromEmail, status: "pending" }]);
+    setProgressLog([{ emailId, fromEmail, status: "pending" }]);
     setShowProgressModal(true);
     setUnsubscribeProgress({
       total: 1,
@@ -149,7 +149,7 @@ export function EmailActions({
             const data = JSON.parse(line.slice(6));
 
             if (data.type === "processing") {
-              setProgressLog([{ fromEmail, status: "processing" }]);
+              setProgressLog([{ emailId, fromEmail, status: "processing" }]);
               setUnsubscribeProgress({
                 total: 1,
                 processed: 0,
@@ -161,6 +161,7 @@ export function EmailActions({
             if (data.type === "progress" && data.result) {
               setProgressLog([
                 {
+                  emailId,
                   fromEmail,
                   status: data.result.success ? "success" : "failed",
                   message: data.result.message,
@@ -205,8 +206,7 @@ export function EmailActions({
     }
   };
 
-  const canUnsubscribe =
-    unsubscribeLink && unsubscribeStatus !== "success";
+  const canUnsubscribe = unsubscribeLink && unsubscribeStatus !== "success";
 
   return (
     <>
@@ -260,18 +260,14 @@ export function EmailActions({
             >
               <p
                 className={`font-medium ${
-                  unsubscribeResult.success
-                    ? "text-green-800"
-                    : "text-red-800"
+                  unsubscribeResult.success ? "text-green-800" : "text-red-800"
                 }`}
               >
                 {unsubscribeResult.success ? "Success!" : "Failed"}
               </p>
               <p
                 className={`text-sm mt-1 ${
-                  unsubscribeResult.success
-                    ? "text-green-700"
-                    : "text-red-700"
+                  unsubscribeResult.success ? "text-green-700" : "text-red-700"
                 }`}
               >
                 {unsubscribeResult.success
