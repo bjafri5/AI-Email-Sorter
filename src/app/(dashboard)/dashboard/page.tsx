@@ -27,13 +27,20 @@ export default async function DashboardPage() {
     orderBy: { createdAt: "desc" },
   });
 
+  const uncategorizedCount = await prisma.email.count({
+    where: {
+      account: { userId: session.user.id },
+      categoryId: null,
+    },
+  });
+
   return (
     <div className="container mx-auto p-6 max-w-4xl space-y-8">
       <p className="text-gray-500">
         Welcome, {session.user.name || session.user.email}
       </p>
-      <ConnectedAccounts accounts={accounts} />
-      <CategoriesList categories={categories} />
+      <ConnectedAccounts accounts={accounts} userEmail={session.user.email} />
+      <CategoriesList categories={categories} uncategorizedCount={uncategorizedCount} />
     </div>
   );
 }

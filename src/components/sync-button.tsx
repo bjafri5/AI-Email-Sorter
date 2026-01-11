@@ -1,6 +1,11 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { useSyncContext } from "@/components/sync-context";
 
 export function SyncButton() {
@@ -15,9 +20,16 @@ export function SyncButton() {
           {progressText}
         </span>
       )}
-      <Button onClick={triggerSync} disabled={isSyncing}>
-        {isSyncing ? "Syncing..." : "Sync Emails"}
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button onClick={triggerSync} disabled={isSyncing}>
+            {isSyncing ? "Syncing..." : "Sync Emails"}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          Fetch 10 new unread emails from each account and categorize them
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }

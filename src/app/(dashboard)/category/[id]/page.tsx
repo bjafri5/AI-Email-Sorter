@@ -16,19 +16,34 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     redirect("/login");
   }
 
-  const category = await prisma.category.findFirst({
-    where: {
-      id,
-      userId: session.user.id,
-    },
-  });
+  const isUncategorized = id === "uncategorized";
 
-  if (!category) {
-    redirect("/dashboard");
+  let categoryName: string;
+  let categoryDescription: string;
+
+  if (isUncategorized) {
+    categoryName = "Uncategorized";
+    categoryDescription = "Emails that couldn't be matched to any category";
+  } else {
+    const category = await prisma.category.findFirst({
+      where: {
+        id,
+        userId: session.user.id,
+      },
+    });
+
+    if (!category) {
+      redirect("/dashboard");
+    }
+
+    categoryName = category.name;
+    categoryDescription = category.description;
   }
 
   const emails = await prisma.email.findMany({
-    where: { categoryId: id },
+    where: isUncategorized
+      ? { account: { userId: session.user.id }, categoryId: null }
+      : { categoryId: id },
     orderBy: { receivedAt: "desc" },
     select: {
       id: true,
@@ -58,12 +73,12 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
       </div>
 
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">{category.name}</h1>
-        <p className="text-gray-500">{category.description}</p>
+        <h1 className="text-2xl font-bold">{categoryName}</h1>
+        <p className="text-gray-500">{categoryDescription}</p>
         <p className="text-sm text-gray-400 mt-1">{emails.length} emails</p>
       </div>
 
-      <EmailList emails={emails} categoryId={id} />
+      <EmailList emails={emails} categoryId={isUncategorized ? null : id} isUncategorized={isUncategorized} />
     </div>
   );
 }

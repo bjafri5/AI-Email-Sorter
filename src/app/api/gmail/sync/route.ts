@@ -72,45 +72,50 @@ export async function POST() {
         );
 
         // Flatten all emails into a single array
-        const allEmails: EmailWithAccount[] = fetchResults.flat();
+        const allFetchedEmails: EmailWithAccount[] = fetchResults.flat();
 
-        if (allEmails.length === 0) {
+        if (allFetchedEmails.length === 0) {
           send({ type: "complete", totalProcessed: 0, totalErrors: 0, totalSkipped: 0 });
           controller.close();
           return;
         }
 
-        // Phase 2: Process all emails sequentially with unified progress
-        const total = allEmails.length;
+        // Filter out emails that already exist in the database
+        const existingEmails = await prisma.email.findMany({
+          where: {
+            gmailId: { in: allFetchedEmails.map((e) => e.gmailId) },
+          },
+          select: { gmailId: true },
+        });
+        const existingGmailIds = new Set(existingEmails.map((e) => e.gmailId));
+
+        const newEmails = allFetchedEmails.filter(
+          (e) => !existingGmailIds.has(e.gmailId)
+        );
+        const skippedCount = allFetchedEmails.length - newEmails.length;
+
+        if (newEmails.length === 0) {
+          send({
+            type: "complete",
+            totalProcessed: 0,
+            totalErrors: 0,
+            totalSkipped: skippedCount
+          });
+          controller.close();
+          return;
+        }
+
+        // Phase 2: Process only new emails sequentially
+        const total = newEmails.length;
         let processed = 0;
-        let skipped = 0;
         let errors = 0;
 
-        send({ type: "start", total });
+        send({ type: "start", total, skipped: skippedCount });
 
-        for (let i = 0; i < allEmails.length; i++) {
-          const emailData = allEmails[i];
+        for (let i = 0; i < newEmails.length; i++) {
+          const emailData = newEmails[i];
 
           try {
-            // Skip if exists
-            const existing = await prisma.email.findUnique({
-              where: { gmailId: emailData.gmailId },
-            });
-
-            if (existing) {
-              skipped++;
-              send({
-                type: "progress",
-                current: i + 1,
-                total,
-                processed,
-                skipped,
-                errors,
-                status: "skipped",
-              });
-              continue;
-            }
-
             const bodyText = cleanEmailBody(emailData.body);
             const categoryId = await classifyEmail(
               { ...emailData, body: bodyText },
@@ -121,24 +126,50 @@ export async function POST() {
               body: bodyText,
             });
 
-            await prisma.email.create({
-              data: {
-                gmailId: emailData.gmailId,
-                threadId: emailData.threadId,
-                accountId: emailData.accountId,
-                categoryId,
-                subject: emailData.subject,
-                fromEmail: emailData.fromEmail,
-                fromName: emailData.fromName,
-                snippet: emailData.snippet,
-                body: emailData.body,
-                bodyText,
-                summary,
-                unsubscribeLink: emailData.unsubscribeLink,
-                receivedAt: emailData.receivedAt,
-                isArchived: true,
-              },
-            });
+            // Use upsert to handle race conditions where another sync
+            // might have inserted this email between our batch check and now
+            try {
+              await prisma.email.upsert({
+                where: { gmailId: emailData.gmailId },
+                create: {
+                  gmailId: emailData.gmailId,
+                  threadId: emailData.threadId,
+                  accountId: emailData.accountId,
+                  categoryId,
+                  subject: emailData.subject,
+                  fromEmail: emailData.fromEmail,
+                  fromName: emailData.fromName,
+                  snippet: emailData.snippet,
+                  body: emailData.body,
+                  bodyText,
+                  summary,
+                  unsubscribeLink: emailData.unsubscribeLink,
+                  receivedAt: emailData.receivedAt,
+                  isArchived: true,
+                },
+                update: {}, // Don't update if already exists
+              });
+            } catch (upsertError) {
+              // P2002 = unique constraint violation - email already exists, skip it
+              if (
+                upsertError instanceof Error &&
+                "code" in upsertError &&
+                (upsertError as { code: string }).code === "P2002"
+              ) {
+                // Already exists, treat as skipped not processed
+                send({
+                  type: "progress",
+                  current: i + 1,
+                  total,
+                  processed,
+                  skipped: skippedCount + 1,
+                  errors,
+                  status: "skipped",
+                });
+                continue;
+              }
+              throw upsertError; // Re-throw other errors
+            }
 
             await archiveEmail(emailData.accountId, emailData.gmailId);
             processed++;
@@ -148,7 +179,7 @@ export async function POST() {
               current: i + 1,
               total,
               processed,
-              skipped,
+              skipped: skippedCount,
               errors,
               status: "processed",
             });
@@ -163,7 +194,7 @@ export async function POST() {
               current: i + 1,
               total,
               processed,
-              skipped,
+              skipped: skippedCount,
               errors,
               status: "error",
               errorMessage: error instanceof Error ? error.message : String(error),
@@ -182,7 +213,7 @@ export async function POST() {
           )
         );
 
-        send({ type: "complete", totalProcessed: processed, totalErrors: errors, totalSkipped: skipped });
+        send({ type: "complete", totalProcessed: processed, totalErrors: errors, totalSkipped: skippedCount });
       } catch (error) {
         send({ type: "error", message: String(error) });
       }

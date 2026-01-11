@@ -23,9 +23,10 @@ interface Category {
 
 interface CategoriesListProps {
   categories: Category[];
+  uncategorizedCount: number;
 }
 
-export function CategoriesList({ categories }: CategoriesListProps) {
+export function CategoriesList({ categories, uncategorizedCount }: CategoriesListProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   return (
@@ -72,6 +73,24 @@ export function CategoriesList({ categories }: CategoriesListProps) {
                 </div>
               </Link>
             ))}
+            {uncategorizedCount > 0 && (
+              <Link
+                href="/category/uncategorized"
+                className="block p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border-dashed border-2 border-gray-200"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-medium text-gray-600">Uncategorized</h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Emails that couldn&apos;t be matched to any category
+                    </p>
+                  </div>
+                  <span className="text-sm text-gray-400">
+                    {uncategorizedCount} emails
+                  </span>
+                </div>
+              </Link>
+            )}
           </div>
         )}
 

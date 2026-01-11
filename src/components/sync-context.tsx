@@ -106,10 +106,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               );
               setProgress(null);
               setIsError(false);
+              // Clear progress text after 10 seconds
+              setTimeout(() => {
+                setProgressText(null);
+              }, 10000);
             } else if (data.type === "error") {
               setProgressText(data.message);
               setProgress(null);
               setIsError(true);
+              // Clear error text after 10 seconds
+              setTimeout(() => {
+                setProgressText(null);
+                setIsError(false);
+              }, 10000);
             }
           }
         }
