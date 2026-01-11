@@ -1,4 +1,4 @@
-import { firefox, Browser, Page, FrameLocator } from "playwright";
+import { chromium, Browser, Page, FrameLocator } from "playwright";
 import { openai } from "./openai";
 
 interface UnsubscribeResult {
@@ -39,7 +39,10 @@ export async function unsubscribeFromLink(
   console.log("=".repeat(60));
 
   try {
-    browser = await firefox.launch({ headless: true, timeout: 30000 });
+    console.log("Launching Chromium browser...");
+    const launchStart = Date.now();
+    browser = await chromium.launch({ headless: true, timeout: 30000 });
+    console.log(`Browser launched in ${Date.now() - launchStart}ms`);
 
     const context = await browser.newContext({
       userAgent:
@@ -447,7 +450,6 @@ JSON only:`;
     - Email fields → fill with user's email
     - Name fields → fill with user's name (if available)
     - Reason/feedback fields → fill with "No longer interested"
-    - If a text field is required or empty and appears near a unsubscribe radio/checkbox, it likely needs the user's email
     - After filling required fields, click Submit/Confirm
 
   5. For checkboxes/radios:

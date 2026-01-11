@@ -9,8 +9,8 @@ COPY prisma ./prisma/
 # Install dependencies
 RUN npm install
 
-# Install Firefox browser for Playwright
-RUN npx playwright install firefox
+# Install Chromium browser for Playwright
+RUN npx playwright install chromium
 
 # Copy application code
 COPY . .
