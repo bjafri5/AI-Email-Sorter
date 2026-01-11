@@ -39,7 +39,7 @@ export async function unsubscribeFromLink(
   console.log("=".repeat(60));
 
   try {
-    browser = await firefox.launch({ headless: true });
+    browser = await firefox.launch({ headless: true, timeout: 30000 });
 
     const context = await browser.newContext({
       userAgent:
@@ -52,8 +52,8 @@ export async function unsubscribeFromLink(
 
     console.log("Navigating to page...");
     await page.goto(unsubscribeLink, {
-      waitUntil: "networkidle",
-      timeout: 20000,
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
     });
 
     // Wait for content to render (handles JS-rendered pages and iframes)
@@ -208,7 +208,6 @@ async function waitForPageChange(page: Page): Promise<void> {
 
     // Wait for new page to load
     await page.waitForLoadState("domcontentloaded", { timeout: 5000 });
-    await page.waitForLoadState("networkidle", { timeout: 5000 });
 
     // Wait for content to render
     await waitForContent(page, 5000);
@@ -217,9 +216,9 @@ async function waitForPageChange(page: Page): Promise<void> {
   } catch {
     // URL didn't change - might be AJAX update
     try {
-      await page.waitForLoadState("networkidle", { timeout: 3000 });
+      await page.waitForTimeout(2000);
       await waitForContent(page, 3000);
-      console.log(`  → Network idle (same URL)`);
+      console.log(`  → Waited for AJAX (same URL)`);
     } catch {
       console.log(`  → Timeout, proceeding`);
     }
@@ -448,6 +447,7 @@ JSON only:`;
     - Email fields → fill with user's email
     - Name fields → fill with user's name (if available)
     - Reason/feedback fields → fill with "No longer interested"
+    - If a text field is required or empty and appears near a unsubscribe radio/checkbox, it likely needs the user's email
     - After filling required fields, click Submit/Confirm
 
   5. For checkboxes/radios:
@@ -943,12 +943,53 @@ async function getInteractiveElements(
           const placeholder = el.getAttribute("placeholder") || "";
           const ariaLabel = el.getAttribute("aria-label") || "";
           const name = el.getAttribute("name") || "";
+          const id = el.getAttribute("id") || "";
+          const dataLabel = el.getAttribute("data-nl-label") || "";
           const value = (el as HTMLInputElement).value || "";
+
+          // Check if id or name suggests email field
+          const isEmailField =
+            /email/i.test(id) ||
+            /email/i.test(name) ||
+            /email/i.test(dataLabel);
+
+          // Check for label in same table row
+          let rowLabel = "";
+          const row = el.closest("tr");
+          if (row) {
+            const cells = row.querySelectorAll("td");
+            for (const cell of cells) {
+              if (!cell.contains(el)) {
+                const text = (cell.textContent || "").trim();
+                if (text.length > 2 && text !== ":") {
+                  // Skip empty/colon-only labels
+                  rowLabel = text.substring(0, 50);
+                  break;
+                }
+              }
+            }
+          }
+
+          // Build descriptive text
+          let inputText =
+            ariaLabel ||
+            dataLabel ||
+            placeholder ||
+            rowLabel ||
+            name ||
+            "text field";
+
+          // If we detected it's an email field, make that clear
+          if (isEmailField && !/email/i.test(inputText)) {
+            inputText = `email: ${inputText}`;
+          }
 
           const hasVisibleText =
             (ariaLabel && ariaLabel.length > 0) ||
             (placeholder && placeholder.length > 0) ||
-            (name && name.length > 0);
+            (name && name.length > 0) ||
+            (dataLabel && dataLabel.length > 0) ||
+            (rowLabel && rowLabel.length > 0);
 
           // Additional size/opacity checks only if no visible text
           if (!hasVisibleText) {
@@ -959,7 +1000,7 @@ async function getInteractiveElements(
             domIndex: domIndices.input++,
             selector: 'input[type="text"], input[type="email"], textarea',
             elementType: "input",
-            text: ariaLabel || name || "text field",
+            text: inputText,
             placeholder,
             value,
           });
@@ -971,16 +1012,29 @@ async function getInteractiveElements(
           // Always filter display:none / visibility:hidden ancestors
           if (hasHiddenAncestor(htmlEl)) return;
 
-          const text = (el.textContent || "")
+          let text = (el.textContent || "")
             .trim()
             .replace(/\s+/g, " ")
             .substring(0, 50);
 
+          // If no text, check for image alt text inside the link
+          if (!text) {
+            const img = el.querySelector("img");
+            if (img) {
+              text = (img.getAttribute("alt") || "").trim().substring(0, 50);
+            }
+          }
+
+          // Also check aria-label
+          if (!text) {
+            text = (el.getAttribute("aria-label") || "")
+              .trim()
+              .substring(0, 50);
+          }
+
           if (
             text &&
-            /unsub|confirm|submit|yes|opt.?out|remove|cancel|update.*pref/i.test(
-              text
-            )
+            /unsub|confirm|submit|yes|opt.?out|remove|cancel|update/i.test(text)
           ) {
             results.push({
               elementType: "link",
