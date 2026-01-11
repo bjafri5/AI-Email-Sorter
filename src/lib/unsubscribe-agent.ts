@@ -357,13 +357,49 @@ async function analyzeAndAct(
     console.log(`  ${i + 1}. [${e.type}] "${e.text}"${details}`);
   });
 
+  // If no interactive elements, let AI analyze the page text for success/error messages
   if (elements.length === 0) {
-    return {
-      done: true,
-      success: false,
-      message: "No interactive elements found",
-      shouldWaitForPageChange: false,
-    };
+    // Check if the page text indicates success (AI might catch patterns we missed)
+    const prompt = `You are an unsubscribe assistant. Analyze this page text and determine if the unsubscribe was successful.
+
+PAGE TEXT:
+${pageText.substring(0, 5000)}
+
+The page has no interactive elements (buttons, links, forms). Based on the text, determine:
+1. Is there a SUCCESS message indicating the user has been unsubscribed?
+2. Is there an ERROR message?
+3. Is the page just empty or unclear?
+
+RESPOND WITH JSON:
+{"success": true, "message": "reason"} - if page indicates successful unsubscribe
+{"success": false, "message": "reason"} - if error, empty, or unclear
+
+JSON only:`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const aiResponse = response.choices[0]?.message?.content?.trim() || "";
+    console.log(`AI (no elements):`, aiResponse);
+
+    try {
+      const result = JSON.parse(aiResponse);
+      return {
+        done: true,
+        success: result.success,
+        message: result.message || "No interactive elements found",
+        shouldWaitForPageChange: false,
+      };
+    } catch {
+      return {
+        done: true,
+        success: false,
+        message: "No interactive elements found",
+        shouldWaitForPageChange: false,
+      };
+    }
   }
 
   // Build element list for AI
@@ -572,6 +608,7 @@ function isSuccessPage(text: string): boolean {
     /you are now unsubscribed/i,
     /successfully unsubscribed/i,
     /you('ve| have) been unsubscribed/i,
+    /request.*accepted/i,
     /request.*being processed/i,
     /removed from.*list/i,
     /no longer receive/i,
@@ -592,7 +629,8 @@ function isSuccessPage(text: string): boolean {
     /email preferences.*updated/i,
     /saved.*preferences/i,
     /saved.*email.*preferences/i,
-    /{"success":true}/i,
+    /"success":true/i,
+    /unsubscribe successful/i,
   ];
   return patterns.some((p) => p.test(text));
 }
