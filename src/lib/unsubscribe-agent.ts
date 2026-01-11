@@ -1,4 +1,4 @@
-import { chromium, firefox, Browser, Page, FrameLocator } from "playwright";
+import { chromium, webkit, Browser, Page, FrameLocator } from "playwright";
 import { openai } from "./openai";
 
 interface UnsubscribeResult {
@@ -39,17 +39,17 @@ export async function unsubscribeFromLink(
   // Try Chromium first
   const chromiumResult = await tryWithBrowser("chromium", unsubscribeLink, userInfo);
 
-  // If HTTP2 error, fallback to Firefox
+  // If HTTP2 error, fallback to WebKit
   if (!chromiumResult.success && chromiumResult.message.includes("ERR_HTTP2_PROTOCOL_ERROR")) {
-    console.log("\nHTTP2 error detected, retrying with Firefox...\n");
-    return tryWithBrowser("firefox", unsubscribeLink, userInfo);
+    console.log("\nHTTP2 error detected, retrying with WebKit...\n");
+    return tryWithBrowser("webkit", unsubscribeLink, userInfo);
   }
 
   return chromiumResult;
 }
 
 async function tryWithBrowser(
-  browserType: "chromium" | "firefox",
+  browserType: "chromium" | "webkit",
   unsubscribeLink: string,
   userInfo: UserInfo
 ): Promise<UnsubscribeResult> {
@@ -59,8 +59,8 @@ async function tryWithBrowser(
     console.log(`Launching ${browserType} browser...`);
     const launchStart = Date.now();
 
-    if (browserType === "firefox") {
-      browser = await firefox.launch({ headless: true, timeout: 30000 });
+    if (browserType === "webkit") {
+      browser = await webkit.launch({ headless: true, timeout: 30000 });
     } else {
       browser = await chromium.launch({ headless: true, timeout: 30000 });
     }
@@ -68,8 +68,8 @@ async function tryWithBrowser(
 
     const context = await browser.newContext({
       userAgent:
-        browserType === "firefox"
-          ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+        browserType === "webkit"
+          ? "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
           : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       viewport: { width: 1920, height: 1080 },
     });
