@@ -1,4 +1,4 @@
-import { chromium, webkit, Browser, Page, FrameLocator } from "playwright";
+import { chromium, Browser, Page, FrameLocator } from "playwright";
 import { openai } from "./openai";
 
 interface UnsubscribeResult {
@@ -36,41 +36,16 @@ export async function unsubscribeFromLink(
   console.log(`USER: ${userInfo.email} (${userInfo.name || "no name"})`);
   console.log("=".repeat(60));
 
-  // Try Chromium first
-  const chromiumResult = await tryWithBrowser("chromium", unsubscribeLink, userInfo);
-
-  // If HTTP2 error, fallback to WebKit
-  if (!chromiumResult.success && chromiumResult.message.includes("ERR_HTTP2_PROTOCOL_ERROR")) {
-    console.log("\nHTTP2 error detected, retrying with WebKit...\n");
-    return tryWithBrowser("webkit", unsubscribeLink, userInfo);
-  }
-
-  return chromiumResult;
-}
-
-async function tryWithBrowser(
-  browserType: "chromium" | "webkit",
-  unsubscribeLink: string,
-  userInfo: UserInfo
-): Promise<UnsubscribeResult> {
   let browser: Browser | null = null;
 
   try {
-    console.log(`Launching ${browserType} browser...`);
+    console.log("Launching chromium browser...");
     const launchStart = Date.now();
-
-    if (browserType === "webkit") {
-      browser = await webkit.launch({ headless: true, timeout: 30000 });
-    } else {
-      browser = await chromium.launch({ headless: true, timeout: 30000 });
-    }
+    browser = await chromium.launch({ headless: true, timeout: 30000 });
     console.log(`Browser launched in ${Date.now() - launchStart}ms`);
 
     const context = await browser.newContext({
-      userAgent:
-        browserType === "webkit"
-          ? "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
-          : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       viewport: { width: 1920, height: 1080 },
     });
 
@@ -477,27 +452,40 @@ JSON only:`;
     - Reason/feedback fields → fill with "No longer interested"
     - After filling required fields, click Submit/Confirm
 
-  5. For checkboxes/radios:
-    - "Unsubscribe from all" checkbox → should be CHECKED
-    - "Subscribe" or "Keep me subscribed" checkbox → should be UNCHECKED
-    - For YES/NO or ON/OFF toggles about receiving emails/communications:
-      - unchecked = NO/OFF = user will NOT receive emails (CORRECT - leave it alone)
-      - checked = YES/ON = user WILL receive emails (WRONG - click to uncheck)
-    - If the current value is already the unsubscribed state, do NOT click it - go straight to Save/Submit
+  5. For checkboxes/radios - IMPORTANT - understand the checkbox semantics:
+    - "Unsubscribe from X" checkbox → must be CHECKED to unsubscribe (checking = confirming you want to unsubscribe)
+    - "Subscribe" or "Keep me subscribed" checkbox → must be UNCHECKED to unsubscribe
+    - For YES/NO or ON/OFF toggles about receiving emails:
+      - If toggle is for "receive emails": checked = subscribed (WRONG), unchecked = unsubscribed (CORRECT)
+      - If toggle is for "unsubscribe": checked = will unsubscribe (CORRECT), unchecked = won't unsubscribe (WRONG)
 
-  6. If a checkbox/radio needs to change state, CLICK it
+  6. CRITICAL checkbox workflow:
+    a. First, check current checkbox state in the element list (value: "checked" or "unchecked")
+    b. Determine if state needs to change based on rule 5
+    c. If checkbox needs to be CHECKED but shows "unchecked" → CLICK it
+    d. If checkbox needs to be UNCHECKED but shows "checked" → CLICK it
+    e. After clicking, WAIT for next attempt to verify the state changed
+    f. Only proceed to Submit AFTER verifying the checkbox is in the correct state
 
-  7. After checkbox/radio is in correct state, you MUST click Submit/Save/Update button
+  7. After checkbox/radio is VERIFIED to be in correct state, click Submit/Save/Update button
 
   8. Selecting an option is NOT enough - you must SAVE the changes
 
   9. Do NOT repeat the same action. Check PREVIOUS ACTIONS and do the next logical step.
-    - If you already clicked a checkbox, click Save/Submit next
-    - If you already clicked Save/Submit, check if success message appeared
+    - If you clicked a checkbox, verify its new state before clicking Submit
+    - If checkbox state did NOT change after clicking, try clicking it again
+    - If you clicked Save/Submit, check if success message appeared
 
-  10. If you previously clicked Save/Submit AND the checkbox/radio is in the correct unsubscribed state AND no error message appeared, return DONE with success:true. The save likely worked even without a visible confirmation message.
+  10. Only return DONE with success:true if:
+    - Page shows explicit success message ("unsubscribed", "preferences saved", etc.), OR
+    - Save/Submit was clicked AND checkbox shows CORRECT state (e.g., "Unsubscribe from X" shows "checked")
 
-  IMPORTANT: A checkbox/radio being in the correct state does NOT mean success. You must click the Save/Submit button to complete the unsubscribe. Only return DONE with success:true if the page shows a confirmation message OR if Save was already clicked and the form is in the correct state with no errors.
+  11. Return DONE with success:false if:
+    - Checkbox for "Unsubscribe from X" is still "unchecked" after clicking Submit
+    - Error message appears
+    - Cannot proceed
+
+  IMPORTANT: If an "Unsubscribe from X" checkbox shows "unchecked", the user is still SUBSCRIBED. You must click it to CHECK it, then click Submit.
 
   RESPOND WITH JSON:
   {"action": "DONE", "success": true, "message": "reason"} - if confirmation visible OR save was clicked with correct state

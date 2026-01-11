@@ -2,6 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { friendlyUnsubscribeErrorMessage } from '@/lib/error-messages'
 
 describe('friendlyUnsubscribeErrorMessage', () => {
+  it('converts website blocking errors', () => {
+    expect(friendlyUnsubscribeErrorMessage('net::ERR_HTTP2_PROTOCOL_ERROR'))
+      .toBe('This website is blocking automated unsubscribe. Please unsubscribe manually.')
+    expect(friendlyUnsubscribeErrorMessage('net::ERR_CONNECTION_RESET'))
+      .toBe('This website is blocking automated unsubscribe. Please unsubscribe manually.')
+    expect(friendlyUnsubscribeErrorMessage('net::ERR_CONNECTION_REFUSED'))
+      .toBe('This website is blocking automated unsubscribe. Please unsubscribe manually.')
+  })
+
   it('converts timeout errors', () => {
     expect(friendlyUnsubscribeErrorMessage('Timeout 20000ms exceeded'))
       .toBe('Page took too long to load. Please try again.')
@@ -17,7 +26,7 @@ describe('friendlyUnsubscribeErrorMessage', () => {
   it('converts navigation/network errors', () => {
     expect(friendlyUnsubscribeErrorMessage('Navigation failed'))
       .toBe('Could not reach the unsubscribe page. Please try again.')
-    expect(friendlyUnsubscribeErrorMessage('net::ERR_CONNECTION_REFUSED'))
+    expect(friendlyUnsubscribeErrorMessage('net::ERR_NAME_NOT_RESOLVED'))
       .toBe('Could not reach the unsubscribe page. Please try again.')
   })
 
