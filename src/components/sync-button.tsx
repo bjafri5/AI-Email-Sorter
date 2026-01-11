@@ -15,7 +15,9 @@ export function SyncButton() {
     <div className="flex items-center gap-2">
       {progressText && (
         <span
-          className={`hidden sm:inline text-xs ${isError ? "text-red-500" : "text-gray-500"}`}
+          className={`hidden sm:inline text-xs ${
+            isError ? "text-red-500" : "text-gray-500"
+          }`}
         >
           {progressText}
         </span>
@@ -27,7 +29,7 @@ export function SyncButton() {
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          Fetch 10 new unread emails from each account and categorize them
+          Fetch up to 10 new unread emails from each account and categorize them
         </TooltipContent>
       </Tooltip>
     </div>

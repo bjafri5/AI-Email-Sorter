@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     },
     include: {
       account: {
-        select: { email: true },
+        select: { email: true, name: true },
       },
     },
   });
@@ -52,12 +52,6 @@ export async function POST(request: NextRequest) {
       }
     );
   }
-
-  // User info from session
-  const userInfo = {
-    email: session.user.email || "",
-    name: session.user.name || undefined,
-  };
 
   // Create SSE stream
   const stream = new ReadableStream({
@@ -103,9 +97,15 @@ export async function POST(request: NextRequest) {
         });
 
         try {
+          // Use the account's email and name (the one receiving the emails), not the user's
+          const accountInfo = {
+            email: email.account.email || "",
+            name: email.account.name || undefined,
+          };
+
           const result = await unsubscribeFromLink(
             email.unsubscribeLink!,
-            userInfo
+            accountInfo
           );
 
           await prisma.email.update({

@@ -756,7 +756,7 @@ export function EmailList({
                     </p>
                   </div>
                   <div className="text-xs text-gray-400 whitespace-nowrap text-right">
-                    <div>{new Date(email.receivedAt).toLocaleDateString()}</div>
+                    <div>{new Date(email.receivedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</div>
                     {email.account.email && (
                       <div
                         className="mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full truncate max-w-[200px]"

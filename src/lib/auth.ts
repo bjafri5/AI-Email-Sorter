@@ -35,8 +35,8 @@ export const authOptions: NextAuthOptions = {
   },
   events: {
     async linkAccount({ account, profile }) {
-      // Store email in account record AFTER it's created
-      if (profile?.email) {
+      // Store email and name in account record AFTER it's created
+      if (profile?.email || profile?.name) {
         await prisma.account.update({
           where: {
             provider_providerAccountId: {
@@ -45,7 +45,8 @@ export const authOptions: NextAuthOptions = {
             },
           },
           data: {
-            email: profile.email as string,
+            email: (profile.email as string) || undefined,
+            name: (profile.name as string) || undefined,
           },
         });
       }
