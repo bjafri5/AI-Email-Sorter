@@ -109,6 +109,7 @@ export function EmailList({
       fromEmail: string;
       fromName: string | null;
       success: boolean;
+      unchanged: boolean;
       categoryName: string | null;
     }>
   >([]);
@@ -378,6 +379,7 @@ export function EmailList({
                     ? {
                         ...item,
                         status: data.result.success ? "success" : "failed",
+                        unchanged: data.result.unchanged,
                         categoryName: data.result.categoryName,
                       }
                     : item
@@ -417,11 +419,11 @@ export function EmailList({
   const succeededCount = unsubscribeResults.filter((r) => r.success).length;
   const failedCount = unsubscribeResults.filter((r) => !r.success).length;
 
-  const recategorizeSucceededCount = recategorizeResults.filter(
-    (r) => r.success
+  const recategorizeChangedCount = recategorizeResults.filter(
+    (r) => !r.unchanged
   ).length;
-  const recategorizeFailedCount = recategorizeResults.filter(
-    (r) => !r.success
+  const recategorizeUnchangedCount = recategorizeResults.filter(
+    (r) => r.unchanged
   ).length;
 
   if (emails.length === 0) {
@@ -565,15 +567,17 @@ export function EmailList({
             <div className="space-y-4">
               <div className="flex gap-4 text-sm">
                 <span className="text-green-600">
-                  ✓ {recategorizeSucceededCount} categorized
+                  ✓ {recategorizeChangedCount} changed
                 </span>
                 <span className="text-gray-500">
-                  − {recategorizeFailedCount} still uncategorized
+                  − {recategorizeUnchangedCount} unchanged
                 </span>
               </div>
 
               <div className="max-h-64 overflow-y-auto space-y-2">
-                {recategorizeResults.map((result, index) => (
+                {[...recategorizeResults]
+                  .sort((a, b) => Number(a.unchanged) - Number(b.unchanged))
+                  .map((result, index) => (
                   <div
                     key={index}
                     className={`p-3 rounded text-sm ${
@@ -586,7 +590,9 @@ export function EmailList({
                     </div>
                     <div className="text-gray-600 text-xs mt-1">
                       {result.success
-                        ? `Moved to "${result.categoryName}"`
+                        ? result.unchanged
+                          ? `Unchanged (${result.categoryName})`
+                          : `Moved to "${result.categoryName}"`
                         : "Could not match to any category"}
                     </div>
                   </div>

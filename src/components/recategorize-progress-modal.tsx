@@ -13,6 +13,7 @@ export interface RecategorizeProgressLogItem {
   fromEmail: string;
   fromName: string | null;
   status: "pending" | "processing" | "success" | "failed";
+  unchanged?: boolean;
   categoryName?: string | null;
 }
 
@@ -32,6 +33,12 @@ export function RecategorizeProgressModal({
   progressLog,
   progress,
 }: RecategorizeProgressModalProps) {
+  const completedItems = progressLog.filter(
+    (item) => item.status === "success" || item.status === "failed"
+  );
+  const changedCount = completedItems.filter((item) => !item.unchanged).length;
+  const unchangedCount = completedItems.filter((item) => item.unchanged).length;
+
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent className="max-w-md" showCloseButton={false}>
@@ -85,7 +92,9 @@ export function RecategorizeProgressModal({
                 )}
                 {item.status === "success" && item.categoryName && (
                   <div className="text-xs text-green-600">
-                    Moved to &quot;{item.categoryName}&quot;
+                    {item.unchanged
+                      ? `Unchanged (${item.categoryName})`
+                      : `Moved to "${item.categoryName}"`}
                   </div>
                 )}
                 {item.status === "failed" && (
@@ -100,12 +109,8 @@ export function RecategorizeProgressModal({
 
         {progress && (
           <div className="flex gap-4 text-sm pt-2 border-t">
-            <span className="text-green-600">
-              ✓ {progress.succeeded} categorized
-            </span>
-            <span className="text-gray-500">
-              − {progress.failed} still uncategorized
-            </span>
+            <span className="text-green-600">✓ {changedCount} changed</span>
+            <span className="text-gray-500">− {unchangedCount} unchanged</span>
           </div>
         )}
       </DialogContent>

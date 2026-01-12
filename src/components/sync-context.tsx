@@ -111,16 +111,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               });
               setProgressText(`${data.current}/${data.total} processed`);
             } else if (data.type === "complete") {
-              const parts = [];
-              if (data.totalProcessed > 0)
-                parts.push(`${data.totalProcessed} new`);
-              if (data.totalSkipped > 0)
-                parts.push(`${data.totalSkipped} skipped`);
-              if (data.totalErrors > 0)
-                parts.push(`${data.totalErrors} errors`);
               setProgressText(
-                parts.length > 0
-                  ? `Done! ${parts.join(", ")}`
+                data.totalProcessed > 0
+                  ? `Done! ${data.totalProcessed} new`
                   : "Done! No new emails"
               );
               setProgress(null);

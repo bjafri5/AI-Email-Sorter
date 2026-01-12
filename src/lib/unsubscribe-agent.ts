@@ -728,6 +728,7 @@ export function isSuccessPage(text: string): boolean {
     /already unsubscribed/i,
     /you are now unsubscribed/i,
     /successfully unsubscribed/i,
+    /unsubscribed successfully/i,
     /you('ve| have) been unsubscribed/i,
     /request.*accepted/i,
     /request.*being processed/i,
@@ -752,6 +753,7 @@ export function isSuccessPage(text: string): boolean {
     /saved.*email.*preferences/i,
     /"success":true/i,
     /unsubscribe successful/i,
+    /unsubscribe submitted/i,
   ];
   return patterns.some((p) => p.test(text));
 }

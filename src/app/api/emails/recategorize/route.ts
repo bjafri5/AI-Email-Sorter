@@ -56,6 +56,7 @@ export async function POST(request: Request) {
             fromName: true,
             bodyText: true,
             snippet: true,
+            categoryId: true,
           },
         });
 
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
           fromEmail: string;
           fromName: string | null;
           success: boolean;
+          unchanged: boolean;
           categoryId: string | null;
           categoryName: string | null;
         }> = [];
@@ -109,10 +111,14 @@ export async function POST(request: Request) {
                 );
 
                 if (categoryId) {
-                  await prisma.email.update({
-                    where: { id: email.id },
-                    data: { categoryId },
-                  });
+                  const unchanged = email.categoryId === categoryId;
+
+                  if (!unchanged) {
+                    await prisma.email.update({
+                      where: { id: email.id },
+                      data: { categoryId },
+                    });
+                  }
 
                   const category = categories.find((c) => c.id === categoryId);
                   succeeded++;
@@ -121,6 +127,7 @@ export async function POST(request: Request) {
                     fromEmail: email.fromEmail,
                     fromName: email.fromName,
                     success: true,
+                    unchanged,
                     categoryId,
                     categoryName: category?.name || null,
                   });
@@ -132,6 +139,7 @@ export async function POST(request: Request) {
                     fromEmail: email.fromEmail,
                     fromName: email.fromName,
                     success: false,
+                    unchanged: email.categoryId === null,
                     categoryId: null,
                     categoryName: null,
                   });
@@ -155,6 +163,7 @@ export async function POST(request: Request) {
                   fromEmail: email.fromEmail,
                   fromName: email.fromName,
                   success: false,
+                  unchanged: false,
                   categoryId: null,
                   categoryName: null,
                 });
