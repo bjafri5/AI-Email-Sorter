@@ -74,6 +74,14 @@ export function EmailList({
     UnsubscribeResult[]
   >([]);
 
+  // Skip reason modal state
+  const [showSkipModal, setShowSkipModal] = useState(false);
+  const [skipReason, setSkipReason] = useState<{
+    alreadyUnsubscribed: number;
+    noLink: number;
+  } | null>(null);
+  const [skippedCount, setSkippedCount] = useState(0);
+
   // Progress modal state
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [unsubscribeProgress, setUnsubscribeProgress] = useState<{
@@ -196,25 +204,64 @@ export function EmailList({
 
     // Get the selected emails' info for the progress log
     const selectedEmails = emails.filter((e) => selectedIds.has(e.id));
-    const initialLog = selectedEmails.map((e) => ({
-      emailId: e.id,
-      fromEmail: e.fromEmail,
-      status: "pending" as const,
-    }));
 
+    // Separate emails into processable and skipped
+    const processableEmails = selectedEmails.filter(
+      (e) => e.unsubscribeLink && e.unsubscribeStatus !== "success"
+    );
+    const alreadyUnsubscribed = selectedEmails.filter(
+      (e) => e.unsubscribeStatus === "success"
+    );
+    const noLinkEmails = selectedEmails.filter(
+      (e) => !e.unsubscribeLink && e.unsubscribeStatus !== "success"
+    );
+
+    // If no emails can be processed, show skip modal
+    if (processableEmails.length === 0) {
+      setSkipReason({
+        alreadyUnsubscribed: alreadyUnsubscribed.length,
+        noLink: noLinkEmails.length,
+      });
+      setShowSkipModal(true);
+      return;
+    }
+
+    // Build initial log with skipped emails marked appropriately
+    const initialLog: ProgressLogItem[] = [
+      ...processableEmails.map((e) => ({
+        emailId: e.id,
+        fromEmail: e.fromEmail,
+        status: "pending" as const,
+      })),
+      ...alreadyUnsubscribed.map((e) => ({
+        emailId: e.id,
+        fromEmail: e.fromEmail,
+        status: "skipped" as const,
+        message: "Already unsubscribed",
+      })),
+      ...noLinkEmails.map((e) => ({
+        emailId: e.id,
+        fromEmail: e.fromEmail,
+        status: "skipped" as const,
+        message: "No unsubscribe link",
+      })),
+    ];
+
+    const totalSkipped = alreadyUnsubscribed.length + noLinkEmails.length;
+    setSkippedCount(totalSkipped);
     setIsUnsubscribing(true);
     setProgressLog(initialLog);
     setShowProgressModal(true);
     setUnsubscribeProgress({
-      total: selectedIds.size,
+      total: processableEmails.length,
       processed: 0,
       succeeded: 0,
       failed: 0,
     });
 
     try {
-      // Send email IDs in the order they appear in the UI
-      const orderedEmailIds = selectedEmails.map((e) => e.id);
+      // Send only processable email IDs to the API
+      const orderedEmailIds = processableEmails.map((e) => e.id);
       const response = await fetch("/api/emails/unsubscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -436,6 +483,48 @@ export function EmailList({
 
   return (
     <div>
+      {/* Skip Modal - shown when all selected emails should be skipped */}
+      <Dialog open={showSkipModal} onOpenChange={setShowSkipModal}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cannot Unsubscribe</DialogTitle>
+            <DialogDescription>
+              {skipReason && (
+                <>
+                  {skipReason.alreadyUnsubscribed > 0 &&
+                    skipReason.noLink > 0 && (
+                      <>
+                        {skipReason.alreadyUnsubscribed} email(s) already
+                        unsubscribed and {skipReason.noLink} email(s) have no
+                        unsubscribe link.
+                      </>
+                    )}
+                  {skipReason.alreadyUnsubscribed > 0 &&
+                    skipReason.noLink === 0 && (
+                      <>
+                        {skipReason.alreadyUnsubscribed === 1
+                          ? "This email has already been unsubscribed."
+                          : `All ${skipReason.alreadyUnsubscribed} selected emails have already been unsubscribed.`}
+                      </>
+                    )}
+                  {skipReason.noLink > 0 &&
+                    skipReason.alreadyUnsubscribed === 0 && (
+                      <>
+                        {skipReason.noLink === 1
+                          ? "This email has no unsubscribe link."
+                          : `All ${skipReason.noLink} selected emails have no unsubscribe link.`}
+                      </>
+                    )}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setShowSkipModal(false)}>OK</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Confirmation Modal */}
       <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
         <DialogContent className="max-w-sm">
@@ -480,6 +569,7 @@ export function EmailList({
         open={showProgressModal}
         progressLog={progressLog}
         progress={unsubscribeProgress}
+        skippedCount={skippedCount}
       />
 
       <RecategorizeProgressModal

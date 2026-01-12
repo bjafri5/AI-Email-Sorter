@@ -12,7 +12,7 @@ import { friendlyUnsubscribeErrorMessage } from "@/lib/error-messages";
 export interface ProgressLogItem {
   emailId: string;
   fromEmail: string;
-  status: "pending" | "processing" | "success" | "failed";
+  status: "pending" | "processing" | "success" | "failed" | "skipped";
   message?: string;
 }
 
@@ -25,12 +25,14 @@ interface UnsubscribeProgressModalProps {
     succeeded: number;
     failed: number;
   } | null;
+  skippedCount?: number;
 }
 
 export function UnsubscribeProgressModal({
   open,
   progressLog,
   progress,
+  skippedCount = 0,
 }: UnsubscribeProgressModalProps) {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
@@ -55,6 +57,8 @@ export function UnsubscribeProgressModal({
                   ? "bg-green-50"
                   : item.status === "failed"
                   ? "bg-red-50"
+                  : item.status === "skipped"
+                  ? "bg-yellow-50"
                   : "bg-gray-50"
               }`}
             >
@@ -73,6 +77,9 @@ export function UnsubscribeProgressModal({
                 {item.status === "failed" && (
                   <span className="text-red-600">✗</span>
                 )}
+                {item.status === "skipped" && (
+                  <span className="text-yellow-600">−</span>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{item.fromEmail}</div>
@@ -89,6 +96,9 @@ export function UnsubscribeProgressModal({
                     {friendlyUnsubscribeErrorMessage(item.message)}
                   </div>
                 )}
+                {item.status === "skipped" && item.message && (
+                  <div className="text-xs text-yellow-600">{item.message}</div>
+                )}
               </div>
             </div>
           ))}
@@ -100,6 +110,9 @@ export function UnsubscribeProgressModal({
               ✓ {progress.succeeded} succeeded
             </span>
             <span className="text-red-600">✗ {progress.failed} failed</span>
+            {skippedCount > 0 && (
+              <span className="text-yellow-600">− {skippedCount} skipped</span>
+            )}
           </div>
         )}
       </DialogContent>
