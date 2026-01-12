@@ -39,7 +39,6 @@ interface Email {
 interface EmailListProps {
   emails: Email[];
   categoryId: string | null;
-  isUncategorized?: boolean;
 }
 
 interface UnsubscribeResult {
@@ -55,7 +54,6 @@ const EMAILS_PER_PAGE = 50;
 export function EmailList({
   emails,
   categoryId,
-  isUncategorized = false,
 }: EmailListProps) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -642,20 +640,18 @@ export function EmailList({
                   }...`
                 : `Unsubscribe (${selectedIds.size})`}
             </Button>
-            {isUncategorized && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openConfirmModal("recategorize")}
-                disabled={isDeleting || isUnsubscribing || isRecategorizing}
-              >
-                {isRecategorizing
-                  ? `Recategorizing ${recategorizeProgress?.processed || 0}/${
-                      recategorizeProgress?.total || 0
-                    }...`
-                  : `Recategorize (${selectedIds.size})`}
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openConfirmModal("recategorize")}
+              disabled={isDeleting || isUnsubscribing || isRecategorizing}
+            >
+              {isRecategorizing
+                ? `Recategorizing ${recategorizeProgress?.processed || 0}/${
+                    recategorizeProgress?.total || 0
+                  }...`
+                : `Recategorize (${selectedIds.size})`}
+            </Button>
           </>
         )}
       </div>

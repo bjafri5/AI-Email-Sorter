@@ -1,13 +1,17 @@
 // Helper to make unsubscribe error messages user-friendly
 export function friendlyUnsubscribeErrorMessage(message: string): string {
   // Website blocking automated access - suggest manual unsubscribe
-  if (message.includes("ERR_HTTP2_PROTOCOL_ERROR") ||
-      message.includes("ERR_CONNECTION_RESET") ||
-      message.includes("ERR_CONNECTION_REFUSED") ||
-      message.toLowerCase().includes("captcha") ||
-      message.toLowerCase().includes("anti-bot") ||
-      message.toLowerCase().includes("verify you're human")) {
-    return "This website is blocking automated unsubscribe. Please unsubscribe manually.";
+  if (
+    message.includes("ERR_HTTP2_PROTOCOL_ERROR") ||
+    message.includes("ERR_CONNECTION_RESET") ||
+    message.includes("ERR_CONNECTION_REFUSED") ||
+    message.toLowerCase().includes("captcha") ||
+    message.toLowerCase().includes("anti-bot") ||
+    message.toLowerCase().includes("bot/verification") ||
+    message.toLowerCase().includes("blocked") ||
+    message.toLowerCase().includes("verify you're human")
+  ) {
+    return "This website is likely blocking automated unsubscribe. Please unsubscribe manually.";
   }
   // Timeout errors
   if (message.includes("Timeout") || message.includes("timeout")) {

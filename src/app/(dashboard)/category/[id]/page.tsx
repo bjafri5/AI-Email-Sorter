@@ -91,7 +91,6 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
       <EmailList
         emails={emails}
         categoryId={isUncategorized ? null : id}
-        isUncategorized={isUncategorized}
       />
     </div>
   );
