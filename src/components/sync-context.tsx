@@ -39,6 +39,8 @@ export function useSyncContext() {
   return context;
 }
 
+const AUTO_SYNC_STORAGE_KEY = "email-sorter-auto-sync";
+
 export function SyncProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [isSyncing, setIsSyncing] = useState(false);
@@ -46,9 +48,26 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [progressText, setProgressText] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [isAutoSyncEnabled, setIsAutoSyncEnabled] = useState(false);
+  const [isAutoSyncInitialized, setIsAutoSyncInitialized] = useState(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncEndRef = useRef<number>(0);
+
+  // Load auto-sync preference from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(AUTO_SYNC_STORAGE_KEY);
+    if (stored === "true") {
+      setIsAutoSyncEnabled(true);
+    }
+    setIsAutoSyncInitialized(true);
+  }, []);
+
+  // Save auto-sync preference to localStorage when it changes
+  useEffect(() => {
+    if (isAutoSyncInitialized) {
+      localStorage.setItem(AUTO_SYNC_STORAGE_KEY, String(isAutoSyncEnabled));
+    }
+  }, [isAutoSyncEnabled, isAutoSyncInitialized]);
 
   const performSync = useCallback(async () => {
     if (isSyncing) return;
@@ -151,8 +170,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }, timeToWait);
   }, [isAutoSyncEnabled, isSyncing, performSync]);
 
-  // Handle auto-sync toggle
+  // Handle auto-sync toggle - only trigger when user toggles or on initial load
   useEffect(() => {
+    if (!isAutoSyncInitialized) return;
+
     if (isAutoSyncEnabled && !isSyncing) {
       performSync();
     } else if (!isAutoSyncEnabled) {
@@ -161,7 +182,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         timerRef.current = null;
       }
     }
-  }, [isAutoSyncEnabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAutoSyncEnabled, isAutoSyncInitialized]);
 
   // Schedule next sync after current sync completes
   useEffect(() => {
