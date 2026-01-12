@@ -9,7 +9,10 @@ export function friendlyUnsubscribeErrorMessage(message: string): string {
     message.toLowerCase().includes("anti-bot") ||
     message.toLowerCase().includes("bot/verification") ||
     message.toLowerCase().includes("blocked") ||
-    message.toLowerCase().includes("verify you're human")
+    message.toLowerCase().includes("verify you're human") ||
+    message.toLowerCase().includes("verifying you are human") ||
+    message.toLowerCase().includes("security check") ||
+    message.toLowerCase().includes("security/human verification")
   ) {
     return "This website is likely blocking automated unsubscribe. Please unsubscribe manually.";
   }
