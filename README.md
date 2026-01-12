@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Email Sorter
 
-## Getting Started
+An AI-powered email management app that automatically categorizes Gmail emails, generates summaries, and automates unsubscribes.
 
-First, run the development server:
+## Features
+
+- **AI Classification**: Automatically sorts emails into user-defined categories
+- **Smart Summaries**: AI-generated 1-2 sentence summaries for quick scanning
+- **Bulk Unsubscribe**: Automated unsubscribe using Playwright + AI agent
+- **Real-time Sync**: SSE-powered progress updates during sync and operations
+
+## Quick Start
 
 ```bash
+# Install dependencies
+npm install
+
+# Set up environment variables (e.g. copy from .env.example)
+cp .env.example .env
+
+# Push database schema
+npx prisma db push
+
+# Start development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) and sign in with Google.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Required in `.env`:
 
-## Learn More
+```
+DATABASE_URL=postgresql://...
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=<random-secret>
+GOOGLE_CLIENT_ID=<oauth-client-id>
+GOOGLE_CLIENT_SECRET=<oauth-client-secret>
+OPENAI_API_KEY=<api-key>
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Commands
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run dev      # Start dev server
+npm run build    # Build for production
+npm run test     # Run tests (Vitest)
+npm run lint     # Run ESLint
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Tech Stack
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js 16 (App Router)
+- NextAuth.js + Google OAuth
+- PostgreSQL + Prisma
+- OpenAI (gpt-5-nano/mini)
+- Playwright (Chromium) for unsubscribe automation
+- Tailwind CSS + Radix UI
