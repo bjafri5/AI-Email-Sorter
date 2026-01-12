@@ -25,10 +25,11 @@ export interface UnsubscribeProgress {
 }
 
 interface InteractiveElement {
-  type: "button" | "link" | "input" | "checkbox" | "radio";
+  type: "button" | "link" | "input" | "checkbox" | "radio" | "select";
   text: string;
   placeholder?: string;
   value?: string;
+  options?: string;
   locator: any;
 }
 
@@ -193,8 +194,10 @@ async function processUnsubscribe(
 
     const actionHistory: string[] = [];
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      console.log(`\n--- Attempt ${attempt}/5 ---`);
+    const maxAttempts = 10;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      console.log(`\n--- Attempt ${attempt}/${maxAttempts} ---`);
 
       const result = await analyzeAndAct(
         page,
@@ -469,7 +472,12 @@ async function analyzeAndAct(
   elements.forEach((e, i) => {
     let details = "";
     if (e.placeholder) details += ` (placeholder: ${e.placeholder})`;
-    if (e.value) details += ` (value: "${e.value}")`;
+    if (e.type === "input") {
+      details += e.value ? ` (value: "${e.value}")` : ` (empty)`;
+    } else if (e.value) {
+      details += ` (value: "${e.value}")`;
+    }
+    if (e.options) details += ` [Options: ${e.options}]`;
     console.log(`  ${i + 1}. [${e.type}] "${e.text}"${details}`);
   });
 
@@ -523,7 +531,12 @@ JSON only:`;
     .map((e, i) => {
       let desc = `${i + 1}. [${e.type}] "${e.text}"`;
       if (e.placeholder) desc += ` (placeholder: ${e.placeholder})`;
-      if (e.value) desc += ` (current value: "${e.value}")`;
+      if (e.type === "input") {
+        desc += e.value ? ` (value: "${e.value}")` : ` (empty)`;
+      } else if (e.value) {
+        desc += ` (current: "${e.value}")`;
+      }
+      if (e.options) desc += ` [Options: ${e.options}]`;
       return desc;
     })
     .join("\n");
@@ -563,7 +576,7 @@ JSON only:`;
   4. BEFORE clicking Submit/Update, fill any empty input fields:
     - Email fields → fill with user's email (REQUIRED before submit)
     - Name fields → fill with user's name
-    - Reason fields → fill with "No longer interested"
+    - Reason/feedback/comment fields → fill with "No longer interested in receiving these emails"
 
   5. For checkboxes/radios:
     - "Unsubscribe from X" or "Remove me" → must be CHECKED
@@ -572,21 +585,26 @@ JSON only:`;
     - For YES/NO toggles about NOT receiving/unsubscribing: checked=correct, unchecked=wrong (click to check)
     - Click to toggle if in wrong state, then verify it changed before submitting
 
-  6. Workflow order: Fill inputs → Set checkboxes → Click Submit → Verify success
+  6. For select dropdowns:
+    - If a reason for unsubscribing is required, select an appropriate option like "Not interested anymore" or "Too many emails"
+    - Always select a valid option before submitting the form
 
-  7. Do NOT repeat actions. Check PREVIOUS ACTIONS and do the next step.
+  7. Workflow order: Fill inputs → Select dropdowns → Set checkboxes → Click Submit → Verify success
 
-  8. Return DONE with success:true only if:
+  8. Do NOT repeat actions. Check PREVIOUS ACTIONS and do the next step.
+
+  9. Return DONE with success:true only if:
     - Page shows success message, OR
     - Submit was clicked AND form is in correct state
 
-  9. Return DONE with success:false if error or cannot proceed.
+  10. Return DONE with success:false if error or cannot proceed.
 
   RESPOND WITH JSON:
   {"action": "DONE", "success": true, "message": "reason"} - if confirmation visible OR save was clicked with correct state
-  {"action": "DONE", "success": false, "message": "reason"} - if error or can't proceed  
+  {"action": "DONE", "success": false, "message": "reason"} - if error or can't proceed
   {"action": "CLICK", "element": <number>} - click a button, link, checkbox, or radio
   {"action": "FILL", "element": <number>, "value": "text"} - fill input field
+  {"action": "SELECT", "element": <number>, "value": "option text"} - select dropdown option
 
   JSON only:`;
 
@@ -677,6 +695,36 @@ JSON only:`;
 
         await elements[idx].locator.scrollIntoViewIfNeeded();
         await elements[idx].locator.fill(action.value);
+        return {
+          done: false,
+          success: false,
+          message: "",
+          shouldWaitForPageChange: false,
+        };
+      } else {
+        console.log(`Invalid element index: ${action.element}`);
+        return {
+          done: true,
+          success: false,
+          message: "Invalid element index",
+          shouldWaitForPageChange: false,
+        };
+      }
+    }
+
+    if (action.action === "SELECT" && action.element && action.value) {
+      const idx = action.element - 1;
+      if (idx >= 0 && idx < elements.length) {
+        const element = elements[idx];
+        console.log(`→ Selecting: "${action.value}" in "${element.text}"`);
+
+        // Track this action
+        actionHistory.push(
+          `Attempt ${attempt}: Selected "${action.value}" in "${element.text}"`
+        );
+
+        await element.locator.scrollIntoViewIfNeeded();
+        await element.locator.selectOption({ label: action.value });
         return {
           done: false,
           success: false,
@@ -907,12 +955,13 @@ async function getInteractiveElements(
       checkbox: 0,
       radio: 0,
       input: 0,
+      select: 0,
     };
 
     // Single pass through all interactive elements in DOM order
     document
       .querySelectorAll(
-        'button, input, textarea, [role="button"], [role="switch"], a'
+        'button, input, textarea, select, [role="button"], [role="switch"], a'
       )
       .forEach((el) => {
         const htmlEl = el as HTMLElement;
@@ -1119,6 +1168,99 @@ async function getInteractiveElements(
           return;
         }
 
+        // Select dropdowns
+        if (tagName === "select") {
+          const select = el as HTMLSelectElement;
+
+          if (select.disabled) return;
+
+          // Always filter display:none / visibility:hidden ancestors
+          if (hasHiddenAncestor(htmlEl)) return;
+
+          // Get label text using similar approach to inputs
+          const id = select.id;
+          const name = select.name || "";
+          const ariaLabel = select.getAttribute("aria-label") || "";
+
+          let labelText = ariaLabel;
+
+          // Check label[for="id"]
+          if (!labelText && id) {
+            const labelFor = document.querySelector(`label[for="${id}"]`);
+            if (labelFor) {
+              labelText = (labelFor.textContent || "").trim().substring(0, 50);
+            }
+          }
+
+          // Check parent label
+          if (!labelText) {
+            const parentLabel = select.closest("label");
+            if (parentLabel) {
+              labelText = (parentLabel.textContent || "")
+                .trim()
+                .substring(0, 50);
+            }
+          }
+
+          // Check table row for label
+          if (!labelText) {
+            const row = select.closest("tr");
+            if (row) {
+              const cells = row.querySelectorAll("td");
+              for (const cell of cells) {
+                if (!cell.contains(select)) {
+                  const text = (cell.textContent || "").trim();
+                  if (text.length > 2 && text !== ":") {
+                    labelText = text.substring(0, 50);
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // Fallback to name
+          if (!labelText) {
+            labelText = name || "dropdown";
+          }
+
+          // Get current selected value
+          const selectedOption = select.options[select.selectedIndex];
+          const selectedValue = selectedOption
+            ? selectedOption.text.trim()
+            : "";
+
+          // Get all options for AI context
+          const optionTexts: string[] = [];
+          for (let i = 0; i < select.options.length; i++) {
+            const optText = select.options[i].text.trim();
+            // Skip empty/placeholder options
+            if (optText && !optText.toLowerCase().includes("select")) {
+              optionTexts.push(optText);
+            }
+          }
+          const optionsStr = optionTexts.join(", ");
+
+          const hasVisibleText =
+            (labelText && labelText !== "dropdown" && labelText.length > 0) ||
+            optionsStr.length > 0;
+
+          // Additional size/opacity checks only if no visible text
+          if (!hasVisibleText) {
+            if (!isElementVisible(htmlEl)) return;
+          }
+
+          results.push({
+            domIndex: domIndices.select++,
+            selector: "select",
+            elementType: "select",
+            text: labelText,
+            selectedValue,
+            options: optionsStr,
+          });
+          return;
+        }
+
         // Links (filtered to unsubscribe-related only)
         if (tagName === "a") {
           // Always filter display:none / visibility:hidden ancestors
@@ -1202,6 +1344,15 @@ async function getInteractiveElements(
     } else if (data.elementType === "link") {
       locator = frame.getByRole("link", { name: data.text, exact: false });
       elements.push({ type: "link", text: data.text, locator });
+    } else if (data.elementType === "select") {
+      locator = frame.locator(data.selector).nth(data.domIndex);
+      elements.push({
+        type: "select",
+        text: data.text,
+        value: data.selectedValue || undefined,
+        options: data.options || undefined,
+        locator,
+      });
     }
   }
 
