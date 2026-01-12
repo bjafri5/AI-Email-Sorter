@@ -34,7 +34,7 @@ export function RecategorizeProgressModal({
 }: RecategorizeProgressModalProps) {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Recategorizing...</DialogTitle>
           <DialogDescription>
@@ -63,7 +63,9 @@ export function RecategorizeProgressModal({
                   <span className="text-gray-400">○</span>
                 )}
                 {item.status === "processing" && (
-                  <span className="inline-block animate-spin text-blue-600">◐</span>
+                  <span className="inline-block animate-spin text-blue-600">
+                    ◐
+                  </span>
                 )}
                 {item.status === "success" && (
                   <span className="text-green-600">✓</span>

@@ -1,6 +1,9 @@
 import { getSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { classifyEmail } from "@/lib/ai";
+import pLimit from "p-limit";
+
+const RECATEGORIZE_CONCURRENCY = 10;
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -78,89 +81,95 @@ export async function POST(request: Request) {
           categoryName: string | null;
         }> = [];
 
-        for (const email of emails) {
-          send({
-            type: "processing",
-            total,
-            processed,
-            succeeded,
-            failed,
-            currentId: email.id,
-            current: email.fromEmail,
-          });
+        const limit = pLimit(RECATEGORIZE_CONCURRENCY);
 
-          try {
-            const categoryId = await classifyEmail(
-              {
-                subject: email.subject,
-                fromEmail: email.fromEmail,
-                fromName: email.fromName,
-                body: email.bodyText || "",
-                snippet: email.snippet,
-              },
-              categories
-            );
-
-            if (categoryId) {
-              await prisma.email.update({
-                where: { id: email.id },
-                data: { categoryId },
+        await Promise.all(
+          emails.map((email) =>
+            limit(async () => {
+              send({
+                type: "processing",
+                total,
+                processed,
+                succeeded,
+                failed,
+                currentId: email.id,
+                current: email.fromEmail,
               });
 
-              const category = categories.find((c) => c.id === categoryId);
-              succeeded++;
-              results.push({
-                emailId: email.id,
-                fromEmail: email.fromEmail,
-                fromName: email.fromName,
-                success: true,
-                categoryId,
-                categoryName: category?.name || null,
-              });
-            } else {
-              // Still uncategorized
-              failed++;
-              results.push({
-                emailId: email.id,
-                fromEmail: email.fromEmail,
-                fromName: email.fromName,
-                success: false,
-                categoryId: null,
-                categoryName: null,
-              });
-            }
+              try {
+                const categoryId = await classifyEmail(
+                  {
+                    subject: email.subject,
+                    fromEmail: email.fromEmail,
+                    fromName: email.fromName,
+                    body: email.bodyText || "",
+                    snippet: email.snippet,
+                  },
+                  categories
+                );
 
-            processed++;
-            send({
-              type: "progress",
-              total,
-              processed,
-              succeeded,
-              failed,
-              result: results[results.length - 1],
-            });
-          } catch (error) {
-            console.error(`Error recategorizing email ${email.id}:`, error);
-            processed++;
-            failed++;
-            results.push({
-              emailId: email.id,
-              fromEmail: email.fromEmail,
-              fromName: email.fromName,
-              success: false,
-              categoryId: null,
-              categoryName: null,
-            });
-            send({
-              type: "progress",
-              total,
-              processed,
-              succeeded,
-              failed,
-              result: results[results.length - 1],
-            });
-          }
-        }
+                if (categoryId) {
+                  await prisma.email.update({
+                    where: { id: email.id },
+                    data: { categoryId },
+                  });
+
+                  const category = categories.find((c) => c.id === categoryId);
+                  succeeded++;
+                  results.push({
+                    emailId: email.id,
+                    fromEmail: email.fromEmail,
+                    fromName: email.fromName,
+                    success: true,
+                    categoryId,
+                    categoryName: category?.name || null,
+                  });
+                } else {
+                  // Still uncategorized
+                  failed++;
+                  results.push({
+                    emailId: email.id,
+                    fromEmail: email.fromEmail,
+                    fromName: email.fromName,
+                    success: false,
+                    categoryId: null,
+                    categoryName: null,
+                  });
+                }
+
+                processed++;
+                send({
+                  type: "progress",
+                  total,
+                  processed,
+                  succeeded,
+                  failed,
+                  result: results[results.length - 1],
+                });
+              } catch (error) {
+                console.error(`Error recategorizing email ${email.id}:`, error);
+                processed++;
+                failed++;
+                results.push({
+                  emailId: email.id,
+                  fromEmail: email.fromEmail,
+                  fromName: email.fromName,
+                  success: false,
+                  categoryId: null,
+                  categoryName: null,
+                });
+                send({
+                  type: "progress",
+                  total,
+                  processed,
+                  succeeded,
+                  failed,
+                  result: results[results.length - 1],
+                });
+              }
+            })
+          )
+        );
 
         send({
           type: "complete",

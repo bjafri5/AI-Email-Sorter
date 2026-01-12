@@ -34,7 +34,7 @@ export function UnsubscribeProgressModal({
 }: UnsubscribeProgressModalProps) {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Unsubscribing...</DialogTitle>
           <DialogDescription>
