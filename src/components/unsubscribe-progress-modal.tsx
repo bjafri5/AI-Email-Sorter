@@ -39,7 +39,7 @@ export function UnsubscribeProgressModal({
           <DialogTitle>Unsubscribing...</DialogTitle>
           <DialogDescription>
             {progress
-              ? `Processing ${progress.processed} of ${progress.total} emails`
+              ? `Processed ${progress.processed} of ${progress.total} emails`
               : "Starting..."}
           </DialogDescription>
         </DialogHeader>
@@ -63,7 +63,9 @@ export function UnsubscribeProgressModal({
                   <span className="text-gray-400">○</span>
                 )}
                 {item.status === "processing" && (
-                  <span className="inline-block animate-spin text-blue-600">◐</span>
+                  <span className="inline-block animate-spin text-blue-600">
+                    ◐
+                  </span>
                 )}
                 {item.status === "success" && (
                   <span className="text-green-600">✓</span>
@@ -97,9 +99,7 @@ export function UnsubscribeProgressModal({
             <span className="text-green-600">
               ✓ {progress.succeeded} succeeded
             </span>
-            <span className="text-red-600">
-              ✗ {progress.failed} failed
-            </span>
+            <span className="text-red-600">✗ {progress.failed} failed</span>
           </div>
         )}
       </DialogContent>

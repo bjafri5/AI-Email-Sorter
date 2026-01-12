@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import { getSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { unsubscribeFromLink } from "@/lib/unsubscribe-agent";
+import {
+  unsubscribeFromLinks,
+  UnsubscribeProgress,
+  UNSUBSCRIBE_CONCURRENCY,
+} from "@/lib/unsubscribe-agent";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -38,9 +42,11 @@ export async function POST(request: NextRequest) {
   });
 
   // Preserve the order of emailIds from the request
-  const emailOrder = new Map(emailIds.map((id: string, index: number) => [id, index]));
-  const emails = fetchedEmails.sort((a, b) =>
-    (emailOrder.get(a.id) ?? 0) - (emailOrder.get(b.id) ?? 0)
+  const emailOrder = new Map(
+    emailIds.map((id: string, index: number) => [id, index])
+  );
+  const emails = fetchedEmails.sort(
+    (a, b) => (emailOrder.get(a.id) ?? 0) - (emailOrder.get(b.id) ?? 0)
   );
 
   if (emails.length === 0) {
@@ -53,12 +59,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const userId = session.user.id;
+
   // Create SSE stream
+  const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const encoder = new TextEncoder();
-
-      const send = (data: any) => {
+      const send = (data: object) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
@@ -71,6 +78,15 @@ export async function POST(request: NextRequest) {
         failed: 0,
       });
 
+      // Group emails by account for batch processing
+      const emailsByAccount = new Map<string, typeof emails>();
+      for (const email of emails) {
+        const accountKey = email.account.email || "";
+        const existing = emailsByAccount.get(accountKey) || [];
+        existing.push(email);
+        emailsByAccount.set(accountKey, existing);
+      }
+
       const results: Array<{
         emailId: string;
         fromEmail: string;
@@ -82,116 +98,146 @@ export async function POST(request: NextRequest) {
       let succeeded = 0;
       let failed = 0;
 
-      for (let i = 0; i < emails.length; i++) {
-        const email = emails[i];
+      // Process each account's emails in parallel with real-time progress
+      for (const [accountEmail, accountEmails] of emailsByAccount) {
+        const accountInfo = {
+          email: accountEmail,
+          name: accountEmails[0].account.name || undefined,
+        };
 
-        // Send progress update - processing
-        send({
-          type: "processing",
-          total: emails.length,
-          processed: i,
-          succeeded,
-          failed,
-          currentId: email.id,
-          current: email.fromEmail,
-        });
+        const links = accountEmails.map((e) => e.unsubscribeLink!);
+        const fromEmails = accountEmails.map((e) => e.fromEmail);
 
-        try {
-          // Use the account's email and name (the one receiving the emails), not the user's
-          const accountInfo = {
-            email: email.account.email || "",
-            name: email.account.name || undefined,
-          };
+        // Create a map of link -> email for quick lookup in callback
+        const linkToEmail = new Map(
+          accountEmails.map((e) => [e.unsubscribeLink!, e])
+        );
 
-          const result = await unsubscribeFromLink(
-            email.unsubscribeLink!,
-            accountInfo
-          );
+        // Track pending async operations to await before closing
+        const pendingOperations: Promise<void>[] = [];
 
-          await prisma.email.update({
-            where: { id: email.id },
-            data: {
-              unsubscribeStatus: result.success ? "success" : "failed",
-              unsubscribedAt: result.success ? new Date() : null,
-              unsubscribeAttempts: { increment: 1 },
-            },
-          });
+        // Real-time progress callback - fires on started and completed
+        const handleProgress = (progress: UnsubscribeProgress) => {
+          const email = linkToEmail.get(progress.link);
+          if (!email) return;
 
-          if (result.success) {
-            // Mark all emails from same sender as unsubscribed
-            await prisma.email.updateMany({
-              where: {
-                fromEmail: email.fromEmail,
-                account: { userId: session.user.id },
-                id: { not: email.id },
-              },
-              data: {
-                unsubscribeStatus: "success",
-                unsubscribedAt: new Date(),
-              },
+          if (progress.status === "started") {
+            // Send "processing" update when an unsubscribe starts
+            send({
+              type: "processing",
+              total: emails.length,
+              processed: results.length,
+              succeeded,
+              failed,
+              currentId: email.id,
+              current: email.fromEmail,
             });
-            succeeded++;
-          } else {
-            failed++;
+            return;
           }
 
-          results.push({
-            emailId: email.id,
-            fromEmail: email.fromEmail,
-            success: result.success,
-            method: result.method,
-            message: result.message,
-          });
+          // Handle completion
+          const result = progress.result!;
 
-          // Send progress update - completed one
-          send({
-            type: "progress",
-            total: emails.length,
-            processed: i + 1,
-            succeeded,
-            failed,
-            current: email.fromEmail,
-            result: {
-              emailId: email.id,
-              fromEmail: email.fromEmail,
-              success: result.success,
-              message: result.message,
-            },
-          });
-        } catch (error) {
-          await prisma.email.update({
-            where: { id: email.id },
-            data: {
-              unsubscribeStatus: "failed",
-              unsubscribeAttempts: { increment: 1 },
-            },
-          });
+          // Queue the async database operation
+          const operation = (async () => {
+            try {
+              await prisma.email.update({
+                where: { id: email.id },
+                data: {
+                  unsubscribeStatus: result.success ? "success" : "failed",
+                  unsubscribedAt: result.success ? new Date() : null,
+                  unsubscribeAttempts: { increment: 1 },
+                },
+              });
 
-          results.push({
-            emailId: email.id,
-            fromEmail: email.fromEmail,
-            success: false,
-            method: "none",
-            message: `Error: ${error}`,
-          });
-          failed++;
+              if (result.success) {
+                // Mark all emails from same sender as unsubscribed
+                await prisma.email.updateMany({
+                  where: {
+                    fromEmail: email.fromEmail,
+                    account: { userId },
+                    id: { not: email.id },
+                  },
+                  data: {
+                    unsubscribeStatus: "success",
+                    unsubscribedAt: new Date(),
+                  },
+                });
+                succeeded++;
+              } else {
+                failed++;
+              }
 
-          // Send progress update - error
-          send({
-            type: "progress",
-            total: emails.length,
-            processed: i + 1,
-            succeeded,
-            failed,
-            current: email.fromEmail,
-            result: {
-              emailId: email.id,
-              fromEmail: email.fromEmail,
-              success: false,
-              message: `Error: ${error}`,
-            },
-          });
-        }
+              results.push({
+                emailId: email.id,
+                fromEmail: email.fromEmail,
+                success: result.success,
+                method: result.method,
+                message: result.message,
+              });
+
+              // Send real-time progress update
+              send({
+                type: "progress",
+                total: emails.length,
+                processed: results.length,
+                succeeded,
+                failed,
+                current: email.fromEmail,
+                result: {
+                  emailId: email.id,
+                  fromEmail: email.fromEmail,
+                  success: result.success,
+                  message: result.message,
+                },
+              });
+            } catch (error) {
+              await prisma.email.update({
+                where: { id: email.id },
+                data: {
+                  unsubscribeStatus: "failed",
+                  unsubscribeAttempts: { increment: 1 },
+                },
+              });
+
+              results.push({
+                emailId: email.id,
+                fromEmail: email.fromEmail,
+                success: false,
+                method: "none",
+                message: `Error: ${error}`,
+              });
+              failed++;
+
+              send({
+                type: "progress",
+                total: emails.length,
+                processed: results.length,
+                succeeded,
+                failed,
+                current: email.fromEmail,
+                result: {
+                  emailId: email.id,
+                  fromEmail: email.fromEmail,
+                  success: false,
+                  message: `Error: ${error}`,
+                },
+              });
+            }
+          })();
+
+          pendingOperations.push(operation);
+        };
+
+        // Process all links with real-time progress callback
+        await unsubscribeFromLinks(links, accountInfo, {
+          concurrency: UNSUBSCRIBE_CONCURRENCY,
+          fromEmails,
+          onProgress: handleProgress,
+        });
+
+        // Wait for all pending database operations to complete
+        await Promise.all(pendingOperations);
       }
 
       // Send final result

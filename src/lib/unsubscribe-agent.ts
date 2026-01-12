@@ -1,15 +1,27 @@
 import { chromium, Browser, Page, FrameLocator } from "playwright";
 import { openai } from "./openai";
+import pLimit from "p-limit";
 
-interface UnsubscribeResult {
+// Default concurrency for parallel unsubscribe operations
+export const UNSUBSCRIBE_CONCURRENCY = 5;
+
+export interface UnsubscribeResult {
   success: boolean;
   method: "ai";
   message: string;
 }
 
-interface UserInfo {
+export interface UserInfo {
   email: string;
   name?: string;
+}
+
+export interface UnsubscribeProgress {
+  index: number;
+  link: string;
+  fromEmail?: string;
+  status: "started" | "completed";
+  result?: UnsubscribeResult;
 }
 
 interface InteractiveElement {
@@ -27,16 +39,60 @@ interface AnalyzeResult {
   shouldWaitForPageChange: boolean;
 }
 
+/**
+ * Unsubscribe from a single link (convenience wrapper)
+ * Uses unsubscribeFromLinks internally with concurrency of 1
+ */
 export async function unsubscribeFromLink(
   unsubscribeLink: string,
   userInfo: UserInfo
 ): Promise<UnsubscribeResult> {
+  const results = await unsubscribeFromLinks([unsubscribeLink], userInfo, 1);
+  return results[0];
+}
+
+export interface UnsubscribeFromLinksOptions {
+  concurrency?: number;
+  fromEmails?: string[];
+  onProgress?: (progress: UnsubscribeProgress) => void;
+}
+
+/**
+ * Unsubscribe from multiple links in parallel with shared browser
+ * Uses p-limit for concurrency control and isolated browser contexts
+ * Calls onProgress callback as each unsubscribe completes for real-time updates
+ */
+export async function unsubscribeFromLinks(
+  links: string[],
+  userInfo: UserInfo,
+  optionsOrConcurrency:
+    | number
+    | UnsubscribeFromLinksOptions = UNSUBSCRIBE_CONCURRENCY
+): Promise<UnsubscribeResult[]> {
+  // Support both old signature (concurrency number) and new options object
+  const options: UnsubscribeFromLinksOptions =
+    typeof optionsOrConcurrency === "number"
+      ? { concurrency: optionsOrConcurrency }
+      : optionsOrConcurrency;
+
+  const concurrency = options.concurrency ?? UNSUBSCRIBE_CONCURRENCY;
+  const fromEmails = options.fromEmails;
+  const onProgress = options.onProgress;
+
+  if (links.length === 0) {
+    return [];
+  }
+
   console.log("\n" + "=".repeat(60));
-  console.log(`UNSUBSCRIBE: ${unsubscribeLink}`);
+  console.log(
+    `BATCH UNSUBSCRIBE: ${links.length} links (concurrency: ${concurrency})`
+  );
   console.log(`USER: ${userInfo.email} (${userInfo.name || "no name"})`);
   console.log("=".repeat(60));
 
   let browser: Browser | null = null;
+  // Pre-allocate results array to maintain order
+  const results: UnsubscribeResult[] = new Array(links.length);
 
   try {
     console.log("Launching chromium browser...");
@@ -44,12 +100,83 @@ export async function unsubscribeFromLink(
     browser = await chromium.launch({ headless: true, timeout: 30000 });
     console.log(`Browser launched in ${Date.now() - launchStart}ms`);
 
-    const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      viewport: { width: 1920, height: 1080 },
-    });
+    const limit = pLimit(concurrency);
 
+    await Promise.allSettled(
+      links.map((link, index) =>
+        limit(async () => {
+          const fromEmail = fromEmails?.[index];
+
+          // Notify that this unsubscribe is starting
+          onProgress?.({ index, link, fromEmail, status: "started" });
+
+          const result = await processUnsubscribe(
+            browser!,
+            link,
+            userInfo,
+            fromEmail
+          );
+          results[index] = result;
+
+          // Notify that this unsubscribe completed
+          onProgress?.({ index, link, fromEmail, status: "completed", result });
+
+          return result;
+        })
+      )
+    );
+
+    // Fill in any missing results (from rejected promises)
+    for (let i = 0; i < links.length; i++) {
+      if (!results[i]) {
+        results[i] = {
+          success: false,
+          method: "ai" as const,
+          message: "Unknown error",
+        };
+      }
+    }
+
+    return results;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.log("BATCH ERROR:", errorMessage);
+    // Return failure for all links if browser launch fails
+    return links.map(() => ({
+      success: false,
+      method: "ai" as const,
+      message: errorMessage,
+    }));
+  } finally {
+    if (browser) {
+      await browser.close();
+      console.log("Browser closed");
+    }
+    console.log("=".repeat(60) + "\n");
+  }
+}
+
+/**
+ * Process a single unsubscribe link using a shared browser
+ * Creates an isolated browser context for each link
+ */
+async function processUnsubscribe(
+  browser: Browser,
+  unsubscribeLink: string,
+  userInfo: UserInfo,
+  fromEmail?: string
+): Promise<UnsubscribeResult> {
+  console.log(`\n${"─".repeat(40)}`);
+  console.log(`UNSUBSCRIBE: ${fromEmail || "unknown"} - ${unsubscribeLink}`);
+  console.log("─".repeat(40));
+
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    viewport: { width: 1920, height: 1080 },
+  });
+
+  try {
     const page = await context.newPage();
     page.setDefaultTimeout(20000);
 
@@ -108,10 +235,7 @@ export async function unsubscribeFromLink(
       message: errorMessage,
     };
   } finally {
-    if (browser) {
-      await browser.close();
-    }
-    console.log("=".repeat(60) + "\n");
+    await context.close();
   }
 }
 
