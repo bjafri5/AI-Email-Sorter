@@ -43,7 +43,7 @@ export function CategoriesList({ categories, uncategorizedCount }: CategoriesLis
         </div>
       </CardHeader>
       <CardContent>
-        {categories.length === 0 ? (
+        {categories.length === 0 && uncategorizedCount === 0 ? (
           <div className="text-center py-8">
             <p className="text-gray-500 mb-4">
               No categories yet. Create one to get started!
@@ -54,6 +54,13 @@ export function CategoriesList({ categories, uncategorizedCount }: CategoriesLis
           </div>
         ) : (
           <div className="space-y-3">
+            {categories.length === 0 && uncategorizedCount > 0 && (
+              <div className="text-center py-4 mb-2">
+                <p className="text-gray-500 text-sm">
+                  Create categories to organize your emails
+                </p>
+              </div>
+            )}
             {categories.map((category) => (
               <Link
                 key={category.id}
