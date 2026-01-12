@@ -452,17 +452,6 @@ async function analyzeAndAct(
     };
   }
 
-  // If content disappeared after a button click, assume success
-  if (visibleText.length < 50 && attempt > 1) {
-    console.log(`✓ Content disappeared after action - assuming success`);
-    return {
-      done: true,
-      success: true,
-      message: "Unsubscribed successfully",
-      shouldWaitForPageChange: false,
-    };
-  }
-
   // Check for error using visible text
   if (isErrorPage(visibleText)) {
     console.log(`✗ Error message detected`);
